@@ -27,11 +27,11 @@ namespace termml::style {
         static constexpr std::string_view margin_bottom = "margin-bottom";
 
         static constexpr std::string_view width         = "width";
-        static constexpr std::string_view min_width     = "min_width";
-        static constexpr std::string_view max_width     = "max_width";
+        static constexpr std::string_view min_width     = "min-width";
+        static constexpr std::string_view max_width     = "max-width";
         static constexpr std::string_view height        = "height";
-        static constexpr std::string_view min_height    = "min_height";
-        static constexpr std::string_view max_height    = "max_height";
+        static constexpr std::string_view min_height    = "min-height";
+        static constexpr std::string_view max_height    = "max-height";
 
         static constexpr std::string_view border           = "border";
         static constexpr std::string_view border_left      = "border-left";
