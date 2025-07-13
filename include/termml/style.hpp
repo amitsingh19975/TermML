@@ -323,11 +323,11 @@ namespace termml::style {
             return { .i = std::numeric_limits<int>::max(), .unit = Unit::Cell };
         };
 
-        constexpr auto resolve(unsigned val) const noexcept -> Number {
+        constexpr auto resolve(int val) const noexcept -> Number {
             if (unit != Unit::Percentage) return *this;
             return {
                 .i = static_cast<int>(
-                    static_cast<float>(val) * f
+                    static_cast<float>(val) * f / 100.f
                 ),
                 .unit = Unit::Cell
             };
@@ -336,6 +336,10 @@ namespace termml::style {
         constexpr auto is_absolute() const noexcept -> bool {
             return unit == Unit::Cell;
         }
+
+        static constexpr auto from_cell(int cell) noexcept -> Number {
+            return { .i = cell, .unit = Unit::Cell };
+        }
     };
 
     struct QuadProperty {
@@ -343,6 +347,15 @@ namespace termml::style {
         Number right{Number::fit()};
         Number bottom{Number::fit()};
         Number left{Number::fit()};
+
+        constexpr auto resolve(int val) noexcept -> QuadProperty {
+            return {
+                .top = top.resolve(val),
+                .right = right.resolve(val),
+                .bottom = bottom.resolve(val),
+                .left = left.resolve(val)
+            };
+        }
     };
 
     // top, right, bottom, left
@@ -867,7 +880,7 @@ struct std::formatter<termml::style::Border> {
 
     auto format(termml::style::Border const& v, auto& ctx) const {
         auto out = ctx.out();
-        std::format_to(out, "border: {} {} {}", v.width, v.style, v.color);
+        std::format_to(out, "{} {} {}", v.width, v.style, v.color);
         return out;
     }
 };
