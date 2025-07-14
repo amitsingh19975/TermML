@@ -5,6 +5,7 @@
 #include "termml/core/bounding_box.hpp"
 #include "termml/text.hpp"
 #include "xml/node.hpp"
+#include <algorithm>
 #include <cctype>
 #include <limits>
 #include <string_view>
@@ -165,6 +166,7 @@ namespace termml::layout {
                 style.width = style.width.resolve_all(parent_width);
                 style.min_width = style.min_width.resolve_all(parent_width);
                 style.max_width = style.max_width.resolve_all(parent_width);
+                style.width.i = std::clamp(style.width.i, style.min_width.i, style.max_width.i);
             } else {
                 style.width = style.width.resolve_percentage(parent_width);
                 style.min_width = style.min_width.resolve_percentage(parent_width);
@@ -189,6 +191,7 @@ namespace termml::layout {
                 style.min_height = style.min_height.resolve_all(parent_height);
                 style.max_height = style.max_height.resolve_all(parent_height);
                 style.height = style.height.resolve_all(parent_height);
+                style.height.i = std::clamp(style.height.i, style.min_height.i, style.max_height.i);
             } else {
                 style.min_height = style.min_height.resolve_percentage(parent_height);
                 style.max_height = style.max_height.resolve_percentage(parent_height);
