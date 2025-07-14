@@ -19,14 +19,28 @@ namespace termml::core {
         constexpr Command& operator=(Command &&) noexcept = default;
         constexpr ~Command() noexcept = default;
 
+        static constexpr auto null() noexcept -> Command& {
+            static auto instance = Command{nullptr};
+            return instance;
+        }
+
+        static constexpr auto out() noexcept -> Command& {
+            static auto instance = Command{stdout};
+            return instance;
+        }
+
         template <typename... Args>
         auto write(std::format_string<Args...> fmt, Args&&... args) -> Command& {
-            std::print(m_handle, fmt, std::forward<Args>(args)...);
+            if (m_handle) {
+                std::print(m_handle, fmt, std::forward<Args>(args)...);
+            }
             return *this;
         }
 
         auto write(std::string_view str) -> Command& {
-            std::print(m_handle, "{}", str);
+            if (m_handle) {
+                std::print(m_handle, "{}", str);
+            }
             return *this;
         }
 

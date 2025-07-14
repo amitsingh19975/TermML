@@ -2,16 +2,10 @@
 #define AMT_TERMML_LAYOUT_HPP
 
 #include "style.hpp"
+#include "termml/core/bounding_box.hpp"
 #include "xml/node.hpp"
-#include <array>
 #include <cctype>
-#include <charconv>
-#include <cstdint>
 #include <limits>
-#include <optional>
-#include <span>
-#include <type_traits>
-#include <unordered_map>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -19,25 +13,13 @@
 namespace termml::layout {
     using node_index_t = std::size_t;
 
-    struct BoundingBox {
-        unsigned x{};
-        unsigned y{};
-        unsigned width{};
-        unsigned height{};
-
-        constexpr auto min_x() const noexcept -> unsigned { return x; }
-        constexpr auto min_y() const noexcept -> unsigned { return y; }
-        constexpr auto max_x() const noexcept -> unsigned { return x + width; }
-        constexpr auto max_y() const noexcept -> unsigned { return y + height; }
-    };
-
     struct LayoutNode {
         std::string_view tag{};
         node_index_t node_index{std::numeric_limits<node_index_t>::max()};
         std::size_t style_index{std::numeric_limits<node_index_t>::max()};
         std::string_view text{};
         std::vector<node_index_t> children{};
-        BoundingBox viewport{}; // if std::nullopt, bounds are not resolved.
+        core::BoundingBox viewport{}; // if std::nullopt, bounds are not resolved.
 
         unsigned scroll_x{};
         unsigned scroll_y{};
@@ -47,11 +29,11 @@ namespace termml::layout {
     };
 
     struct LayoutContext {
-        BoundingBox viewport;
+        core::BoundingBox viewport;
         std::vector<LayoutNode> nodes;
         std::vector<std::string_view> strings;
 
-        constexpr LayoutContext(BoundingBox vp) noexcept
+        constexpr LayoutContext(core::BoundingBox vp) noexcept
             : viewport(vp)
         {}
 
@@ -191,26 +173,5 @@ namespace termml::layout {
     };
 
 } // namespace termml::layout
-
-#include <format>
-
-template <>
-struct std::formatter<termml::layout::BoundingBox> {
-    constexpr auto parse(auto& ctx) {
-        auto it = ctx.begin();
-        while (it != ctx.end()) {
-            if (*it == '}') break;
-            ++it;
-        }
-        return it;
-    }
-
-    auto format(termml::layout::BoundingBox const& v, auto& ctx) const {
-        auto out = ctx.out();
-        std::format_to(out, "BoundingBox(x: {}, y: {}, width: {}, height: {})", v.x, v.y, v.width, v.height);
-        return out;
-    }
-};
-
 
 #endif // AMT_TERMML_LAYOUT_HPP

@@ -234,6 +234,7 @@ namespace termml::core {
     }
 
     static inline auto is_displayed(FILE* handle) noexcept -> bool {
+        if (handle == nullptr) return false;
         return is_displayed(get_fd_from_handle(handle));
     }
 
