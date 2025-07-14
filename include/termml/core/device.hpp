@@ -4,6 +4,8 @@
 #include "../style.hpp"
 #include "point.hpp"
 #include "commands.hpp"
+#include "utf8.hpp"
+#include <cassert>
 #include <format>
 #include <limits>
 #include <string_view>
@@ -57,58 +59,6 @@ namespace termml::core {
         };
     } // namespace detail
 
-    template <detail::IsScreen S>
-    struct Device {
-        Device(S&& screen)
-            : m_screen(std::move(screen))
-        {}
-
-        constexpr Device(Device const&) = delete;
-        constexpr Device(Device &&) noexcept = default;
-        constexpr Device& operator=(Device const&) = delete;
-        constexpr Device& operator=(Device &&) noexcept = default;
-        constexpr ~Device() = default;
-
-        constexpr auto put_pixel(
-            std::string_view pixel,
-            int x, int y,
-            PixelStyle const& p = {}
-        ) -> Device& {
-            m_screen.put_pixel(pixel, x, y, p);
-            return *this;
-        }
-
-        constexpr auto put_pixel(
-            std::string_view pixel,
-            Point coord,
-            PixelStyle const& p = {}
-        ) -> Device& {
-            m_screen.put_pixel(pixel, coord.x, coord.y, p);
-            return *this;
-        }
-
-        constexpr auto clear() -> Device& {
-            m_screen.clear();
-            return *this;
-        }
-
-        constexpr auto flush(Command& cmd) -> void {
-            m_screen.flush(cmd);
-        }
-
-        constexpr auto rows() const noexcept -> int {
-            return m_screen.rows();
-        }
-
-        constexpr auto cols() const noexcept -> int {
-            return m_screen.cols();
-        }
-
-    private:
-        S m_screen;
-    };
-
-
     struct NullScreen {
         constexpr auto put_pixel(
             [[maybe_unused]] std::string_view pixel,
@@ -130,7 +80,83 @@ namespace termml::core {
         }
     };
 
+    static_assert(detail::IsScreen<NullScreen>);
+
+    template <detail::IsScreen S>
+    struct Device {
+        Device(S&& screen)
+            : m_screen(std::move(screen))
+        {}
+
+        constexpr Device(Device const&) = delete;
+        constexpr Device(Device &&) noexcept = default;
+        constexpr Device& operator=(Device const&) = delete;
+        constexpr Device& operator=(Device &&) noexcept = default;
+        constexpr ~Device() = default;
+
+        constexpr auto put_pixel(
+            std::string_view pixel,
+            int x, int y,
+            PixelStyle const& p = {}
+        ) noexcept -> Device& {
+            m_screen.put_pixel(pixel, x, y, p);
+            return *this;
+        }
+
+        constexpr auto put_pixel(
+            std::string_view pixel,
+            Point coord,
+            PixelStyle const& p = {}
+        ) noexcept -> Device& {
+            m_screen.put_pixel(pixel, coord.x, coord.y, p);
+            return *this;
+        }
+
+        constexpr auto clear() -> Device& {
+            m_screen.clear();
+            return *this;
+        }
+
+        constexpr auto flush(Command& cmd) -> void {
+            m_screen.flush(cmd);
+        }
+
+        constexpr auto rows() const noexcept -> int {
+            return m_screen.rows();
+        }
+
+        constexpr auto cols() const noexcept -> int {
+            return m_screen.cols();
+        }
+
+        constexpr auto write_text(
+            [[maybe_unused]] std::string_view text,
+            [[maybe_unused]] int x,
+            [[maybe_unused]] int y,
+            [[maybe_unused]] PixelStyle const& p = {}
+        ) noexcept -> Device& {
+            if constexpr (!std::same_as<S, NullScreen>) {
+                for (auto i = 0ul; i < text.size();) {
+                    auto len = ::termml::core::utf8::get_length(text[i]);
+                    assert(i + len <= text.size());
+                    auto txt = text.substr(i, len);
+                    put_pixel(txt, x++, y, p);
+                }
+            }
+            return *this;
+        }
+
+    private:
+        S m_screen;
+    };
+
+
     using null_device_t = Device<NullScreen>;
+
+    inline static constexpr auto null_device() noexcept -> null_device_t& {
+        static auto instance = Device<NullScreen>{NullScreen()};
+        return instance;
+    }
 
 } // namespace termml::core
 
