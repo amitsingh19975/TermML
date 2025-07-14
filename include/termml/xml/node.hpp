@@ -304,15 +304,10 @@ namespace termml::xml {
                     auto txt = ch.text;
                     bool allocated{false};
                     txt = normalize_text(txt, style.whitespace, allocated);
-                    if (txt.empty()) continue;
-                    auto has_trailing_space = txt.back() == ' ';
 
                     std::string_view pattern = " \n\t\r\f\v";
                     if (style.whitespace == style::Whitespace::PreLine) {
                         pattern = " \t\r\f\v";
-                    }
-                    if (last_char_was_whitespace) {
-                        txt = core::utils::ltrim(txt, pattern);
                     }
 
                     if (!inline_context) {
@@ -322,6 +317,15 @@ namespace termml::xml {
                             ch.normalized_text = {};
                             continue;
                         }
+                    } else {
+                        style.display = style::Display::Inline;
+                    }
+
+                    if (txt.empty()) continue;
+                    auto has_trailing_space = txt.back() == ' ';
+
+                    if (last_char_was_whitespace) {
+                        txt = core::utils::ltrim(txt, pattern);
                     }
 
                     if (!inline_context) {
