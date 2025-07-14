@@ -369,6 +369,10 @@ namespace termml::style {
         static constexpr auto from_cell(int cell) noexcept -> Number {
             return { .i = cell, .unit = Unit::Cell };
         }
+
+        constexpr auto as_cell() const noexcept -> int {
+            return is_absolute() ? i : 0;
+        }
     };
 
     struct QuadProperty {
@@ -802,6 +806,16 @@ namespace termml::style {
                 else if (ws == "pre-line") whitespace = Whitespace::PreLine;
                 else if (ws == "pre-wrap") whitespace = Whitespace::PreWrap;
             }
+        }
+
+        constexpr auto content_width() const noexcept -> int {
+            auto w = width.as_cell();
+            auto b = border_left.width.as_cell() + border_right.width.as_cell();
+            auto p = padding.left.as_cell() + padding.right.as_cell();
+            return std::max(
+                0,
+                w - (b + p)
+            );
         }
     private:
         static constexpr auto get_property(
