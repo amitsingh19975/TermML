@@ -334,7 +334,7 @@ namespace termml::style {
             return { .i = std::numeric_limits<int>::max(), .unit = Unit::Cell };
         };
 
-        constexpr auto resolve(int val) const noexcept -> Number {
+        constexpr auto resolve_percentage(int val) const noexcept -> Number {
             if (unit != Unit::Percentage) return *this;
             return {
                 .i = static_cast<int>(
@@ -344,8 +344,26 @@ namespace termml::style {
             };
         }
 
+        constexpr auto resolve_all(int val) const noexcept -> Number {
+            if (unit == Unit::Auto) {
+                return {
+                    .i = val,
+                    .unit = Unit::Cell
+                };
+            }
+            return resolve_percentage(val);
+        }
+
         constexpr auto is_absolute() const noexcept -> bool {
             return unit == Unit::Cell;
+        }
+
+        constexpr auto is_precentage() const noexcept -> bool {
+            return unit == Unit::Percentage;
+        }
+
+        constexpr auto is_fit() const noexcept -> bool {
+            return unit == Unit::Auto;
         }
 
         static constexpr auto from_cell(int cell) noexcept -> Number {
@@ -361,10 +379,10 @@ namespace termml::style {
 
         constexpr auto resolve(int val) noexcept -> QuadProperty {
             return {
-                .top = top.resolve(val),
-                .right = right.resolve(val),
-                .bottom = bottom.resolve(val),
-                .left = left.resolve(val)
+                .top = top.resolve_all(val),
+                .right = right.resolve_all(val),
+                .bottom = bottom.resolve_all(val),
+                .left = left.resolve_all(val)
             };
         }
     };
@@ -418,7 +436,7 @@ namespace termml::style {
     }
 
     struct Border {
-        Number width{Number::fit()};
+        Number width{ Number::min() };
         BorderStyle style{};
         Color color{Color::Default};
 
@@ -427,21 +445,32 @@ namespace termml::style {
             if (s.empty()) return {};
 
             auto width = Number::fit();
-
-            if (std::isdigit(s[0])) {
-                // border: 1 solid black
-                auto i = std::size_t{};
-                for (; i < s.size(); ++i) {
-                    if (std::isspace(s[i])) break;
-                }
-
-                width = Number::parse(s.substr(0, i));
-
-                for (; i < s.size(); ++i) {
-                    if (!std::isspace(s[i])) break;
-                }
-                s = s.substr(i);
+            // border: [thin/thick] solid black
+            auto it = s.find(' ');
+            auto prefix = s.substr(0, it);
+            if (prefix == "thin") {
+                width = Number::from_cell(1);
+                s = s.substr(it + 1);
+            } else if (prefix == "thick") {
+                width = Number::from_cell(2);
+                s = s.substr(it + 1);
             }
+
+            // enable this if we figure out how to control border width using cells
+            // if (std::isdigit(s[0])) {
+            //     // border: 1 solid black
+            //     auto i = std::size_t{};
+            //     for (; i < s.size(); ++i) {
+            //         if (std::isspace(s[i])) break;
+            //     }
+            //
+            //     width = Number::parse(s.substr(0, i));
+            //
+            //     for (; i < s.size(); ++i) {
+            //         if (!std::isspace(s[i])) break;
+            //     }
+            //     s = s.substr(i);
+            // }
 
             // border: solid
             // border: solid red

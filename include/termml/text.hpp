@@ -18,12 +18,47 @@ namespace termml::text {
     struct TextRenderer {
         std::string_view text;
         core::Command& command = core::Command::null();
-        style::Whitespace whitespace{style::Whitespace::Normal};
-        core::BoundingBox container{};
-        core::Point offset{};
+        core::BoundingBox viewport{core::BoundingBox::inf()};
+        core::Point start_offset{};
+        core::Point scroll_offset{};
 
-        auto render() const -> core::BoundingBox {
-            
+        // Message content width; ignore padding and margin
+        constexpr auto measure_width() const noexcept -> int {
+            int width{};
+            auto start = std::size_t{};
+            auto it = std::min(text.find('\n'), text.size());
+            while (it < text.size()) {
+                auto w = static_cast<int>(it - start);
+                width = std::max(width, w);
+                start = it + 1;
+                it = std::min(text.find('\n', start), text.size());
+            }
+
+            auto w = static_cast<int>(it - start);
+            width = std::max(width, w);
+
+            return width;
+        }
+
+        constexpr auto measure_height(style::Style const& style) const noexcept -> int {
+            (void)style; 
+            return 0;
+        }
+
+        auto render(style::Style const& style) const -> core::BoundingBox {
+            //  |---------------------Scroll Container-------------------|
+            //  |               |--------ViewBox---------|               |
+            //  |               |                        |               |
+            //  |               |    P                   |               |
+            //  |               |                        |               |
+            //  |               |                        |               |
+            //  |               |                        |               |
+            //  |               |------------------------|               |
+            //  |                                                        |
+            //  |--------------------------------------------------------|
+
+            (void) style;
+            return {};
         };
     };
 

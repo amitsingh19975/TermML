@@ -3,6 +3,7 @@
 
 #include "style.hpp"
 #include "termml/core/bounding_box.hpp"
+#include "termml/text.hpp"
 #include "xml/node.hpp"
 #include <cctype>
 #include <limits>
@@ -56,6 +57,7 @@ namespace termml::layout {
             nodes.push_back(std::move(layout));
             initialize_nodes(context, { .index = 0, .kind = xml::NodeKind::Element }, 0);
             resolve_style(context);
+            resolve_cyclic_width(context, 0, viewport.width);
         }
 
         auto dump(xml::Context const* context, node_index_t index = 0, unsigned level = 0) const -> void {
@@ -104,7 +106,7 @@ namespace termml::layout {
                         .style_index = context->text_nodes[ch.index].style_index,
                         .text = txt
                     });
-                    nodes[layout_node_index].children.push_back(next_index);
+                    nodes[current_node_index].children.push_back(next_index);
                 } else if (ch.kind == xml::NodeKind::Element) {
                     initialize_nodes(context, ch, current_node_index);
                 }
@@ -146,9 +148,7 @@ namespace termml::layout {
             if (style.height.is_absolute()) {
                 for (auto l: layout.children) {
                     auto& ts = context->styles[nodes[l].style_index];
-                    ts.min_height = ts.min_height.resolve(style.height.i);
-                    ts.max_height = ts.max_height.resolve(style.height.i);
-                    ts.height = ts.height.resolve(style.height.i);
+                    resolve_style_height_releated_props(ts, style.height.i);
                     resolve_style(context, l);
                 }
             }
@@ -156,19 +156,102 @@ namespace termml::layout {
 
         static constexpr auto resolve_style_width_releated_props(
             style::Style& style,
-            int parent_width
+            int parent_width,
+            bool resolve_auto_fit = false
         ) noexcept -> void {
             parent_width = std::max(parent_width, 0);
-            style.min_width = style.min_width.resolve(parent_width);
-            style.max_width = style.max_width.resolve(parent_width);
-            style.width = style.width.resolve(parent_width);
-            style.border_top.width = style.border_top.width.resolve(0);
-            style.border_right.width = style.border_right.width.resolve(0);
-            style.border_bottom.width = style.border_bottom.width.resolve(0);
-            style.border_right.width = style.border_right.width.resolve(0);
+
+            if (resolve_auto_fit) {
+                style.width = style.width.resolve_all(parent_width);
+                style.min_width = style.min_width.resolve_all(parent_width);
+                style.max_width = style.max_width.resolve_all(parent_width);
+            } else {
+                style.width = style.width.resolve_percentage(parent_width);
+                style.min_width = style.min_width.resolve_percentage(parent_width);
+                style.max_width = style.max_width.resolve_percentage(parent_width);
+            }
+
+            style.border_top.width = style.border_top.width.resolve_percentage(0);
+            style.border_right.width = style.border_right.width.resolve_percentage(0);
+            style.border_bottom.width = style.border_bottom.width.resolve_percentage(0);
+            style.border_right.width = style.border_right.width.resolve_percentage(0);
             style.padding = style.padding.resolve(parent_width);
             style.margin = style.margin.resolve(parent_width);
             style.inset = style.inset.resolve(parent_width);
+        }
+
+        static constexpr auto resolve_style_height_releated_props(
+            style::Style& style,
+            int parent_height,
+            bool resolve_auto_fit = false
+        ) noexcept -> void {
+            if (resolve_auto_fit) {
+                style.min_height = style.min_height.resolve_all(parent_height);
+                style.max_height = style.max_height.resolve_all(parent_height);
+                style.height = style.height.resolve_all(parent_height);
+            } else {
+                style.min_height = style.min_height.resolve_percentage(parent_height);
+                style.max_height = style.max_height.resolve_percentage(parent_height);
+                style.height = style.height.resolve_percentage(parent_height);
+            }
+        }
+
+        constexpr auto resolve_cyclic_width(
+            xml::Context* context,
+            node_index_t node,
+            int max_parent_width,
+            int level = 0
+        ) noexcept -> int /*container width*/ {
+            auto const& el = nodes[node];
+            auto& style = context->styles[el.style_index];
+            auto content_width = 0;
+
+            if (el.tag.empty() && node != 0) {
+                auto text = text::TextRenderer{
+                    .text = el.text
+                };
+                content_width = std::min(text.measure_width(), max_parent_width);
+            }
+
+            for (auto l: el.children) {
+                auto const& c = nodes[l];
+                auto& cs = context->styles[c.style_index];
+                if (cs.width.is_absolute()) {
+                    content_width = std::max(content_width, cs.width.i);
+                    resolve_cyclic_width(context, l, cs.width.i, level + 1);
+                } else if (cs.width.is_fit()) {
+                    auto parent_width = style.width.is_absolute() ? style.width.i : max_parent_width;
+                    content_width = std::max(
+                        content_width,
+                        resolve_cyclic_width(context, l, parent_width, level + 1)
+                    );
+                } else if (cs.width.is_precentage()) {
+                    // cannot resolve this so we set this to 0
+                    cs.width = cs.width.resolve_percentage(0);
+                }
+            }
+
+            auto& padding = style.padding;
+            auto& border_left = style.border_left;
+            auto& border_right = style.border_right;
+
+            content_width += border_left.width.is_absolute() ? border_left.width.i : 0;
+            content_width += border_right.width.is_absolute() ? border_right.width.i : 0;
+
+            auto per = 0.f;
+            if (padding.left.is_precentage()) per += padding.left.f / 100.f;
+            if (padding.right.is_precentage()) per += padding.right.f / 100.f;
+            per = 1.f - per;
+
+            auto actual_width = content_width;
+
+            if (per >= 0.0001f) {
+                actual_width = static_cast<int>(float(content_width) / per);
+            }
+
+            resolve_style_width_releated_props(style, actual_width, true);
+
+            return actual_width;
         }
     };
 
