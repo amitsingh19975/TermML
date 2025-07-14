@@ -21,14 +21,12 @@ void sleep_frame(std::chrono::steady_clock::time_point start, int ms = 16) {
 int main() {
     std::string_view source = R"(
     <row color="red">
-        <br />
-        <b color="inherit" white-space="inherit">
+        <b min-width="30%">
             ⚠️ Warning:
-
         </b>
         <text>Disk space is almost full.</text>
     </row>
-
+    test
     <col>
         <text>Usage:</text>
         <b color="#ff5555">95%</b>
@@ -38,10 +36,10 @@ int main() {
     l.lex();
     auto parser = xml::Parser(std::move(l));
     parser.parse();
-    parser.context->resolve_css();
-    parser.context->dump_xml();
     auto layout = layout::LayoutContext({ .x = 0, .y = 0, .width = 100, .height = 100 });
     layout.compute(parser.context.get());
+    parser.context->dump_xml();
+    // layout.dump(parser.context.get());
 
     return 0;
 }
@@ -49,7 +47,7 @@ int main() {
 int main2() {
     std::println("Hey");
     core::RawModeGuard r{};
-    auto cmd = core::Command{};
+    auto& cmd = core::Command::out();
 
     auto x = 0;
     auto dx = 1;
