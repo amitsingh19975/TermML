@@ -86,7 +86,13 @@ namespace termml::xml {
             auto tab = level * 4;
             if (node.kind == NodeKind::TextContent) {
                 auto const& text = text_nodes[node.index];
-                std::println("{:{}}{}", ' ', tab, text.normalized_text);
+                if (text.normalized_text.empty()) return;
+                auto const& style = styles[text.style_index];
+                if (style.display == style::Display::Block) {
+                    std::println("{:{}}<#block>{}</#block>", ' ', tab, text.normalized_text);
+                } else {
+                    std::println("{:{}}{}", ' ', tab, text.normalized_text);
+                }
             } else if (node.kind == NodeKind::Element) {
                 auto const& el = element_nodes[node.index];
                 std::print("{:{}} <{} ", ' ', tab, el.tag);
@@ -172,6 +178,14 @@ namespace termml::xml {
                 if (!tmp.empty()) {
                     for (auto [k, v]: tmp) child.attributes[k] = v;
                 }
+
+                for (auto k: style::CSSPropertyKey::inherited_properties) {
+                    if (child.attributes.contains(k)) continue;
+                    if (auto it = el.attributes.find(k); it != child.attributes.end()) {
+                        child.attributes[k] = it->second;
+                    }
+                }
+
                 resolve_css_inheritance(ch);
             }
         }
@@ -194,7 +208,7 @@ namespace termml::xml {
             }
         }
 
-        auto normalize_text(std::string_view text, style::Whitespace whitespace) -> std::string_view {
+        auto normalize_text(std::string_view text, style::Whitespace whitespace, bool& allocated) -> std::string_view {
             if (text.empty()) return {};
             if (whitespace == style::Whitespace::Pre || whitespace == style::Whitespace::PreWrap) {
                 return text;
@@ -241,6 +255,7 @@ namespace termml::xml {
             }
 
             text_node_computed_string.push_back(std::make_unique<std::string>());
+            allocated = true;
             std::string& tmp = *text_node_computed_string.back();
             tmp.reserve(end - start + 1);
 
@@ -287,25 +302,36 @@ namespace termml::xml {
                     auto& ch = text_nodes[c.index];
                     auto& style = styles[ch.style_index];
                     auto txt = ch.text;
-                    txt = normalize_text(txt, style.whitespace);
+                    bool allocated{false};
+                    txt = normalize_text(txt, style.whitespace, allocated);
                     if (txt.empty()) continue;
                     auto has_trailing_space = txt.back() == ' ';
 
-                    if (last_char_was_whitespace) {
-                        if (style.whitespace == style::Whitespace::PreLine) {
-                            txt = core::utils::ltrim(txt, " \t\r\f\v");
-                        } else if (style.whitespace == style::Whitespace::Normal) {
-                            txt = core::utils::ltrim(txt);
-                        }
+                    std::string_view pattern = " \n\t\r\f\v";
+                    if (style.whitespace == style::Whitespace::PreLine) {
+                        pattern = " \t\r\f\v";
                     }
-
-                    ch.normalized_text = txt;
+                    if (last_char_was_whitespace) {
+                        txt = core::utils::ltrim(txt, pattern);
+                    }
 
                     if (!inline_context) {
                         style.display = style::Display::Block;
+                        if (core::utils::trim(txt).empty()) {
+                            if (allocated) text_node_computed_string.pop_back();
+                            ch.normalized_text = {};
+                            continue;
+                        }
                     }
 
-                    last_char_was_whitespace = has_trailing_space;
+                    if (!inline_context) {
+                        ch.normalized_text = core::utils::trim(txt, pattern);
+                        last_char_was_whitespace = false;
+                    } else {
+                        ch.normalized_text = txt;
+                        last_char_was_whitespace = has_trailing_space;
+                    }
+
                 } else if (c.kind == NodeKind::Element) {
                     auto& ch = element_nodes[c.index];
                     auto display = styles[ch.style_index].display;

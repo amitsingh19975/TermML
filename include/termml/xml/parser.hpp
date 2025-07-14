@@ -206,40 +206,6 @@ namespace termml::xml {
                 parse_element(root_index);
             }
         }
-
-        auto resolve_css_inheritance(Node const& node = xml::Context::root) -> void {
-            if (node.kind != NodeKind::Element) return;
-
-            auto& el = context->element_nodes[node.index];
-            std::vector<std::string_view> to_be_removed;
-            for (auto [k, v]: el.attributes) {
-                if (v == "inherit") {
-                    to_be_removed.push_back(k);
-                }
-            }
-
-            for (auto k: to_be_removed) el.attributes.erase(k);
-
-            for (auto ch: el.childern) {
-                if (ch.kind != NodeKind::Element) continue;
-                auto& child = context->element_nodes[ch.index];
-                std::unordered_map<std::string_view, std::string_view> tmp; 
-                for (auto [k, v]: child.attributes) {
-                    if (v != "inherit") {
-                        continue;
-                    }
-
-                    if (auto it = el.attributes.find(k); it != child.attributes.end()) {
-                        tmp[k] = it->second;
-                    }
-                }
-
-                if (!tmp.empty()) {
-                    for (auto [k, v]: tmp) child.attributes[k] = v;
-                }
-                resolve_css_inheritance(ch);
-            }
-        }
     private:
         std::size_t m_index{};
     }; 

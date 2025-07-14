@@ -58,6 +58,17 @@ namespace termml::style {
         static constexpr std::string_view overflow = "overflow";
         static constexpr std::string_view overflow_x = "overflow_x";
         static constexpr std::string_view overflow_y = "overflow_y";
+
+        static constexpr auto is_inheritable(std::string_view key) noexcept -> bool {
+            if (key == color) return true;
+            if (key == background_color) return true;
+            if (key == whitespace) return true;
+            return false;
+        }
+
+        static constexpr std::array inherited_properties = {
+            color, background_color, whitespace
+        };
     }; 
 
     struct RGBColor {
