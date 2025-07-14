@@ -21,13 +21,13 @@ namespace termml::core::utils {
 
     static constexpr auto ltrim(std::string_view str, std::string_view chars = " \t\n\r\f\v") noexcept -> std::string_view {
         auto const it = str.find_first_not_of(chars);
-        if (it == std::string_view::npos) return str;
+        if (it == std::string_view::npos) return {};
         return str.substr(it);
     }
 
     static constexpr auto rtrim(std::string_view str, std::string_view chars = " \t\n\r\f\v") noexcept -> std::string_view {
         auto const it = str.find_last_not_of(chars);
-        if (it == std::string_view::npos) return str;
+        if (it == std::string_view::npos) return {};
         return str.substr(0, it + 1);
     }
 
