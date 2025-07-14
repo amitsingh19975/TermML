@@ -1,6 +1,7 @@
 #ifndef AMT_TERMML_CORE_BOUNDING_BOX_HPP
 #define AMT_TERMML_CORE_BOUNDING_BOX_HPP
 
+#include <limits>
 namespace termml::core {
 
     struct BoundingBox {
@@ -19,6 +20,15 @@ namespace termml::core {
                      min_x() >= other.max_x() ||  // this box is completely to the right
                      max_y() <= other.min_y() ||  // this box is completely above
                      min_y() >= other.max_y());   // this box is completely below
+        }
+
+        static constexpr auto inf() noexcept -> BoundingBox {
+            return {
+                .x = 0,
+                .y = 0,
+                .width = std::numeric_limits<int>::max(),
+                .height = std::numeric_limits<int>::max()
+            };
         }
     };
 
