@@ -15,6 +15,8 @@ namespace termml::core {
         constexpr auto clamp_y(int min, int max) const noexcept -> Point {
             return { .x = x, .y = std::clamp(y, min, max) };
         }
+
+        constexpr auto operator==(Point const&) const noexcept -> bool;
     };
 
 } // namespace termml::core
