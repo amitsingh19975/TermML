@@ -240,8 +240,8 @@ namespace termml::layout {
             auto& border_left = style.border_left;
             auto& border_right = style.border_right;
 
-            content_width += border_left.width.is_absolute() ? border_left.width.i : 0;
-            content_width += border_right.width.is_absolute() ? border_right.width.i : 0;
+            content_width += border_left.border_width();
+            content_width += border_right.border_width();
 
             auto per = 0.f;
             if (padding.left.is_precentage()) per += padding.left.f / 100.f;

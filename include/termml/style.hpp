@@ -389,6 +389,9 @@ namespace termml::style {
                 .left = left.resolve_all(val)
             };
         }
+
+        constexpr auto vertical() const noexcept -> int { return top.as_cell() + bottom.as_cell(); }
+        constexpr auto horizontal() const noexcept -> int { return left.as_cell() + right.as_cell(); }
     };
 
     // top, right, bottom, left
@@ -492,6 +495,13 @@ namespace termml::style {
             auto color = Color::parse(s.substr(std::min(i, s.size())));
             return { .width = width, .style = style, .color = color };
         };
+
+        constexpr auto border_width() const noexcept -> int {
+            return std::min(width.as_cell(), 1);
+        }
+
+        constexpr auto is_thick() const noexcept -> bool { return width.as_cell() == 2; }
+        constexpr auto is_thin() const noexcept -> bool { return width.as_cell() == 1; }
     };
 
     enum class BorderType {
@@ -810,7 +820,7 @@ namespace termml::style {
 
         constexpr auto content_width() const noexcept -> int {
             auto w = width.as_cell();
-            auto b = border_left.width.as_cell() + border_right.width.as_cell();
+            auto b = border_left.border_width() + border_right.border_width();
             auto p = padding.left.as_cell() + padding.right.as_cell();
             return std::max(
                 0,
