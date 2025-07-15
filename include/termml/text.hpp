@@ -2,9 +2,10 @@
 #define AMT_TERMML_TEXT_HPP
 
 #include "style.hpp"
-#include "core/commands.hpp"
 #include "core/bounding_box.hpp"
 #include "core/point.hpp"
+#include "core/device.hpp"
+#include "core/utf8.hpp"
 
 namespace termml::text {
 
@@ -17,10 +18,12 @@ namespace termml::text {
 
     struct TextRenderer {
         std::string_view text;
-        core::Command& command = core::Command::null();
+        // Scroll container
+        core::BoundingBox container{core::BoundingBox::inf()};
+        // Viewport that will be visible
         core::BoundingBox viewport{core::BoundingBox::inf()};
+        // position within the scroll container
         core::Point start_offset{};
-        core::Point scroll_offset{};
 
         // Message content width; ignore padding and margin
         constexpr auto measure_width() const noexcept -> int {
@@ -41,11 +44,16 @@ namespace termml::text {
         }
 
         constexpr auto measure_height(style::Style const& style) const noexcept -> int {
-            (void)style; 
-            return 0;
+            return render(core::null_device(), style).height;
         }
 
-        auto render(style::Style const& style) const -> core::BoundingBox {
+        template <core::detail::IsScreen T>
+        auto render(
+            core::Device<T>& device,
+            style::Style const& style
+        ) const -> core::BoundingBox {
+            core::ViewportClipGuard clip(device, viewport);
+
             //  |---------------------Scroll Container-------------------|
             //  |               |--------ViewBox---------|               |
             //  |               |                        |               |
@@ -57,8 +65,26 @@ namespace termml::text {
             //  |                                                        |
             //  |--------------------------------------------------------|
 
-            (void) style;
-            return {};
+            auto width = style.content_width();
+            auto box = viewport;
+            box.width = 0;
+            box.height = 0;
+            if (width == 0) return box;
+
+            auto dx = container.x - start_offset.x;
+            // auto y = container.y - start_offset.y;
+
+            auto len = static_cast<int>(core::utf8::calculate_size(text));
+
+            std::println("HERE: {} + {} < {}", dx, len, width);
+
+            if (dx + len < width) {
+                box.height = style.display == style::Display::Block ? 1 : 0;
+                box.width = device.write_text(text, start_offset.x, start_offset.y, core::PixelStyle::from_style(style)).second;
+                return box;
+            }
+
+            return box;
         };
     };
 

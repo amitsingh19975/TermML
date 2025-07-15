@@ -376,10 +376,10 @@ namespace termml::style {
     };
 
     struct QuadProperty {
-        Number top{Number::fit()};
-        Number right{Number::fit()};
-        Number bottom{Number::fit()};
-        Number left{Number::fit()};
+        Number top{Number::min()};
+        Number right{Number::min()};
+        Number bottom{Number::min()};
+        Number left{Number::min()};
 
         constexpr auto resolve(int val) noexcept -> QuadProperty {
             return {
@@ -410,7 +410,7 @@ namespace termml::style {
                 if (std::isspace(s[i])) break;
             }
 
-            tmp[k++] = Number::parse(s.substr(start, i - start));
+            tmp[k++] = Number::parse(s.substr(start, i - start), Number::min());
 
             for (; i < s.size(); ++i) {
                 if (!std::isspace(s[i])) break;
@@ -420,7 +420,7 @@ namespace termml::style {
         switch (k) {
             case 1: return QuadProperty(tmp[0], tmp[0], tmp[0], tmp[0]);
             case 2: return QuadProperty(tmp[0], tmp[1], tmp[0], tmp[1]);
-            case 3: return QuadProperty(tmp[0], tmp[1], tmp[2], Number::fit());
+            case 3: return QuadProperty(tmp[0], tmp[1], tmp[2], Number::min());
             case 4: return QuadProperty(tmp[0], tmp[1], tmp[2], tmp[3]);
         }
 
@@ -1071,6 +1071,8 @@ struct std::formatter<termml::style::Style> {
         std::format_to(out, "border-left: {}, ", v.border_left);
 
         std::format_to(out, "border_type: {}, ", v.border_type);
+
+        std::format_to(out, "padding: ({}), ", v.padding);
 
         std::format_to(out, "z-index: {}, ", v.z_index);
         std::format_to(out, "white-space: {}, ", v.whitespace);

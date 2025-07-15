@@ -30,6 +30,10 @@ namespace termml::core {
                 .height = std::numeric_limits<int>::max()
             };
         }
+
+        constexpr auto in(int x_, int y_) const noexcept -> bool {
+            return (min_x() <= x_ && x_ <= max_x()) && (min_y() <= y_ && y_ < max_y());
+        }
     };
 
 } // namespace termml::core

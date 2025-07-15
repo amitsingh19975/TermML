@@ -166,17 +166,16 @@ namespace termml::layout {
                 style.width = style.width.resolve_all(parent_width);
                 style.min_width = style.min_width.resolve_all(parent_width);
                 style.max_width = style.max_width.resolve_all(parent_width);
-                style.width.i = std::clamp(style.width.i, style.min_width.i, style.max_width.i);
+                style.width.i = std::max(style.width.i, style.min_width.i);
+                if (style.overflow_x == style::Overflow::Clip) {
+                    style.width.i = std::min(style.width.i, style.max_width.i);
+                }
             } else {
                 style.width = style.width.resolve_percentage(parent_width);
                 style.min_width = style.min_width.resolve_percentage(parent_width);
                 style.max_width = style.max_width.resolve_percentage(parent_width);
             }
 
-            style.border_top.width = style.border_top.width.resolve_percentage(0);
-            style.border_right.width = style.border_right.width.resolve_percentage(0);
-            style.border_bottom.width = style.border_bottom.width.resolve_percentage(0);
-            style.border_right.width = style.border_right.width.resolve_percentage(0);
             style.padding = style.padding.resolve(parent_width);
             style.margin = style.margin.resolve(parent_width);
             style.inset = style.inset.resolve(parent_width);
@@ -191,7 +190,10 @@ namespace termml::layout {
                 style.min_height = style.min_height.resolve_all(parent_height);
                 style.max_height = style.max_height.resolve_all(parent_height);
                 style.height = style.height.resolve_all(parent_height);
-                style.height.i = std::clamp(style.height.i, style.min_height.i, style.max_height.i);
+                style.height.i = std::max(style.height.i, style.min_height.i);
+                if (style.overflow_y == style::Overflow::Clip) {
+                    style.height.i = std::min(style.height.i, style.max_height.i);
+                }
             } else {
                 style.min_height = style.min_height.resolve_percentage(parent_height);
                 style.max_height = style.max_height.resolve_percentage(parent_height);
@@ -230,7 +232,7 @@ namespace termml::layout {
                     );
                 } else if (cs.width.is_precentage()) {
                     // cannot resolve this so we set this to 0
-                    cs.width = cs.width.resolve_percentage(0);
+                    resolve_style_width_releated_props(cs, 0, true);
                 }
             }
 

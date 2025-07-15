@@ -69,21 +69,25 @@ namespace termml::core {
             std::string_view pixel,
             int x, int y,
             PixelStyle const& style = {}
-        ) -> void {
-            if (y >= rows() || y < 0) return;
-            if (x >= cols() || x < 0) return;
+        ) -> bool {
+            if (y >= rows() || y < 0) return false;
+            if (x >= cols() || x < 0) return false;
             auto& cell = this->operator()(static_cast<unsigned>(y), static_cast<unsigned>(x));
-            if (cell.style.z_index > style.z_index) return;
-            if (cell.style != style) cell.is_dirty = true;
+            if (cell.style.z_index > style.z_index) return true;
+            if (!cell.style.is_same_style(style)) cell.is_dirty = true;
             cell.style = style;
             cell.set_text(pixel);
+            m_is_dirty |= cell.is_dirty;
+            return true;
         }
 
         constexpr auto clear() -> void {
             std::fill(m_data.begin(), m_data.end(), Cell{});
         }
 
-        auto flush(Command& cmd) -> void {
+        auto flush(Command& cmd, unsigned dx = 0, unsigned dy = 0) -> void {
+            if (!m_is_dirty) return;
+
             auto previous_style = PixelStyle{};
             auto previous_pos = std::make_pair(0u, 0u);
             for (auto r = 0u; r < m_rows; ++r) {
@@ -92,7 +96,7 @@ namespace termml::core {
                     if (!cell.is_dirty) continue;
                     auto [pr, pc] = previous_pos;
                     if (!((pr == r) && (pc + 1 == c))) {
-                        cmd.move(c, r);
+                        cmd.move(c + dx, r + dy);
                     }
 
                     if (!previous_style.is_same_style(cell.style)) {
@@ -106,6 +110,8 @@ namespace termml::core {
                     previous_pos = { r, c };
                 }
             }
+
+            m_is_dirty = false;
         }
     private:
         static auto write_style(Command& cmd, PixelStyle const& style) -> void {
@@ -151,6 +157,7 @@ namespace termml::core {
         unsigned m_rows{};
         unsigned m_cols{};
         std::vector<Cell> m_data;
+        bool m_is_dirty{true};
     };
 
     static_assert(detail::IsScreen<Terminal>);
