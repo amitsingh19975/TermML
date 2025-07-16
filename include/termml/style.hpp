@@ -550,9 +550,10 @@ namespace termml::style {
     }
 
     enum class Overflow {
-        Clip,
+        Visible,
         Auto,
-        Visible
+        Clip,
+        Scroll
     };
 
     inline static constexpr auto parse_overflow(std::string_view s, Overflow def = Overflow::Clip) noexcept -> Overflow {
@@ -562,6 +563,7 @@ namespace termml::style {
         if (s == "clip") return Overflow::Clip;
         if (s == "auto") return Overflow::Auto;
         if (s == "visible") return Overflow::Visible;
+        if (s == "scroll") return Overflow::Scroll;
 
         return def;
     }
@@ -578,6 +580,11 @@ namespace termml::style {
         Pre, // Everything is preserved
         PreWrap, // Everything is preversed with text wrapping
         PreLine, // Newline is preserved but other whitespace charactors are collapsed.
+    };
+
+    enum class OverflowWrap {
+        Normal, // Lines may only break at normal word break points (such as a space between two words).
+        BreakWord
     };
 
     struct Style {
@@ -610,13 +617,14 @@ namespace termml::style {
 
         int z_index{};
 
-        Overflow overflow_x{};
-        Overflow overflow_y{};
+        Overflow overflow_x{Overflow::Visible};
+        Overflow overflow_y{Overflow::Visible};
 
         Color fg_color{Color::Default};
         Color bg_color{Color::Default};
 
         Whitespace whitespace{Whitespace::Normal};
+        OverflowWrap overflow_wrap{OverflowWrap::Normal};
 
         constexpr auto parse_proprties(
             std::string_view tag,
@@ -987,6 +995,7 @@ struct std::formatter<termml::style::Overflow> {
             case termml::style::Overflow::Clip: return std::format_to(out, "Clip");
             case termml::style::Overflow::Auto: return std::format_to(out, "Auto");
             case termml::style::Overflow::Visible: return std::format_to(out, "Visible");
+            case termml::style::Overflow::Scroll: return std::format_to(out, "Scroll");
         }
         return out;
     }
