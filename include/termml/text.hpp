@@ -6,24 +6,36 @@
 #include "core/point.hpp"
 #include "core/device.hpp"
 #include "core/utf8.hpp"
+#include <cctype>
 
 namespace termml::text {
 
     struct TextRenderResult {
         core::BoundingBox container;
         std::size_t text_rendered{};
-        bool overflowed_x{false};
-        bool overflowed_y{false};
     };
+
+    namespace detail {
+        constexpr auto find_word(std::string_view text, std::size_t pos = 0) noexcept -> std::size_t {
+            for (auto i = pos; i < text.size();) {
+                auto len = core::utf8::get_length(text[i]);
+                if (std::isspace(text[i])) return i;
+                i += len;
+            }
+            return text.size();
+        }
+    } // namespace detail
 
     struct TextRenderer {
         std::string_view text;
         // Scroll container
         core::BoundingBox container{core::BoundingBox::inf()};
-        // Viewport that will be visible
-        core::BoundingBox viewport{core::BoundingBox::inf()};
         // position within the scroll container
         core::Point start_offset{};
+
+        // next word length for word wrapping if next char after
+        // the end of this text is not whitespace or breakable.
+        std::size_t next_word_length{};
 
         // Message content width; ignore padding and margin
         constexpr auto measure_width() const noexcept -> int {
@@ -44,16 +56,14 @@ namespace termml::text {
         }
 
         constexpr auto measure_height(style::Style const& style) const noexcept -> int {
-            return render(core::null_device(), style).height;
+            return render(core::null_device(), style).container.height;
         }
 
         template <core::detail::IsScreen T>
         auto render(
             core::Device<T>& device,
             style::Style const& style
-        ) const -> core::BoundingBox {
-            core::ViewportClipGuard clip(device, viewport);
-
+        ) const -> TextRenderResult {
             //  |---------------------Scroll Container-------------------|
             //  |               |--------ViewBox---------|               |
             //  |               |                        |               |
@@ -65,26 +75,96 @@ namespace termml::text {
             //  |                                                        |
             //  |--------------------------------------------------------|
 
+            if (container.width == 0) {
+                return {};
+            }
+
             auto width = style.content_width();
-            auto box = viewport;
+            auto box = container;
             box.width = 0;
             box.height = 0;
-            if (width == 0) return box;
+            if (width == 0) return { .container = box };
 
-            auto dx = container.x - start_offset.x;
-            // auto y = container.y - start_offset.y;
+            auto dx = start_offset.x - container.x;
+            auto dy = start_offset.y - container.y;
+            if (dx < 0 || dy < 0) return { .container = box };
+
+            auto x = container.x + dx;
+            auto y = container.y + dy;
+
+            auto required_space = static_cast<int>(next_word_length * (style.whitespace == style::Whitespace::Pre));
+
+            auto padding_left = style.padding.left.as_cell() + style.border_left.border_width();
+            auto padding_right = style.padding.right.as_cell() + style.border_right.border_width();
 
             auto len = static_cast<int>(core::utf8::calculate_size(text));
 
-            std::println("HERE: {} + {} < {}", dx, len, width);
+            x += padding_left;
 
-            if (dx + len < width) {
-                box.height = style.display == style::Display::Block ? 1 : 0;
-                box.width = device.write_text(text, start_offset.x, start_offset.y, core::PixelStyle::from_style(style)).second;
-                return box;
+            if (container.max_x() - (x + padding_right) < 0) {
+                box.width = std::max(0, container.max_x() - (x + padding_right));
+                return { .container = box };
             }
 
-            return box;
+            if (x + len + padding_right + required_space < container.max_x()) {
+                box.height = 1;
+                auto end_x = device.write_text(text, x, y, core::PixelStyle::from_style(style)).second;
+                auto w = end_x - x;
+                box.width = w + padding_right + required_space;
+                return { .container = box, .text_rendered = text.size() };
+            }
+
+            box.x = container.x;
+            box.width = std::min(
+                width + padding_right + padding_left + required_space,
+                container.width
+            );
+
+            auto cell_style = core::PixelStyle::from_style(style);
+
+            auto start = std::size_t{};
+            auto start_y = y;
+            do {
+                if (std::isspace(text[start])) {
+                    if (x + 1 >= container.max_x()) {
+                        ++y;
+                        x = container.min_x();
+                    }
+                    auto render_whitespace = (
+                        style.whitespace == style::Whitespace::Pre ||
+                        style.whitespace == style::Whitespace::PreWrap ||
+                        x != container.min_x()
+                    );
+                    if (render_whitespace) {
+                        auto x_inc = 1;
+                        if (text[start] == '\n') {
+                            x = container.min_x();
+                            x_inc = 0;
+                            ++y;
+                        }
+                        device.put_pixel(" ", x, y, cell_style);
+                        x += x_inc;
+                    }
+                    start += 1;
+                }
+                auto pos = detail::find_word(text, start);
+                auto txt = text.substr(start, pos - start);
+                auto sz = static_cast<int>(core::utf8::calculate_size(txt));
+
+                if (x + sz + required_space >= container.max_x()) {
+                    if (x != container.min_x()) {
+                        ++y;
+                        x = container.min_x();
+                    }
+                }
+
+                x = device.write_text(txt, x, y, cell_style).second;
+                start = pos;
+            } while (start < text.size());
+
+            box.height = y - start_y + 1;
+
+            return { .container = box, .text_rendered = text.size() };
         };
     };
 
