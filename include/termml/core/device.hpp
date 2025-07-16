@@ -143,7 +143,6 @@ namespace termml::core {
             [[maybe_unused]] int y,
             [[maybe_unused]] PixelStyle const& p = {}
         ) noexcept -> std::pair<std::size_t /*text rendered*/, int /*pixels consumed*/> {
-            auto start_x = x;
             auto i = std::size_t{};
             if constexpr (!std::same_as<S, NullScreen>) {
                 for (; i < text.size(); ++x) {
@@ -154,7 +153,7 @@ namespace termml::core {
                     i += len;
                 }
             }
-            return { i, x - start_x };
+            return { i, x };
         }
 
         constexpr auto clip(BoundingBox viewport = BoundingBox::inf()) noexcept -> void {
