@@ -88,6 +88,7 @@ namespace termml::core {
         auto flush(Command& cmd, unsigned dx = 0, unsigned dy = 0) -> void {
             if (!m_is_dirty) return;
 
+            cmd.move(0, 1);
             auto previous_style = PixelStyle{};
             auto previous_pos = std::make_pair(0u, 0u);
             for (auto r = 0u; r < m_rows; ++r) {
@@ -96,7 +97,7 @@ namespace termml::core {
                     if (!cell.is_dirty) continue;
                     auto [pr, pc] = previous_pos;
                     if (!((pr == r) && (pc + 1 == c))) {
-                        cmd.move(c + dx, r + dy);
+                        cmd.move(c + dx, r + dy + 1);
                     }
 
                     if (!previous_style.is_same_style(cell.style)) {
