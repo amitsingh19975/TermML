@@ -2,6 +2,7 @@
 #define AMT_TERMML_CORE_BOUNDING_BOX_HPP
 
 #include <limits>
+
 namespace termml::core {
 
     struct BoundingBox {
@@ -32,7 +33,15 @@ namespace termml::core {
         }
 
         constexpr auto in(int x_, int y_) const noexcept -> bool {
-            return (min_x() <= x_ && x_ <= max_x()) && (min_y() <= y_ && y_ < max_y());
+            return within_x(x_) && within_y(y_);
+        }
+
+        constexpr auto within_y(int y_) const noexcept -> bool {
+            return min_y() <= y_ && y_ < max_y();
+        }
+
+        constexpr auto within_x(int x_) const noexcept -> bool {
+            return min_x() <= x_ && x_ < max_x();
         }
     };
 
