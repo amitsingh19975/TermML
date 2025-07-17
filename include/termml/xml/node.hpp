@@ -71,10 +71,12 @@ namespace termml::xml {
             if (node.kind == NodeKind::TextContent) {
                 auto const& text = text_nodes[node.index];
                 std::println("{:{}}#text: \"{}\"", ' ', tab, text.text);
+                std::println("{:{}} > Style({})", ' ', tab, styles[text.style_index]);
                 std::println("{:{}}#computed_text: \"{}\"", ' ', tab, text.normalized_text);
             } else if (node.kind == NodeKind::Element) {
                 auto const& el = element_nodes[node.index];
                 std::println("{:{}} > {}", ' ', tab, el.tag);
+                std::println("{:{}}   |- Style: {}", ' ', tab, styles[el.style_index]);
                 std::println("{:{}}   |- Attr: {}", ' ', tab, el.attributes);
                 for (auto n: el.childern) {
                     dump(n, level + 1);
@@ -196,7 +198,21 @@ namespace termml::xml {
                 if (c.kind == NodeKind::TextContent) {
                     auto& ch = text_nodes[c.index];
                     ch.style_index = styles.size();
-                    styles.push_back(styles[el.style_index]);
+                    auto const& style = styles[el.style_index];
+                    auto tmp_style = style::Style{};
+                    tmp_style.fg_color = style.fg_color;
+                    tmp_style.bg_color = style.bg_color;
+                    tmp_style.min_width = style.min_width;
+                    tmp_style.min_height = style.min_height;
+                    tmp_style.max_width = style.max_width;
+                    tmp_style.max_height = style.max_height;
+                    tmp_style.width = style.width;
+                    tmp_style.height = style.height;
+                    tmp_style.z_index = style.z_index;
+                    tmp_style.overflow_wrap = style.overflow_wrap;
+                    tmp_style.whitespace = style.whitespace;
+                    tmp_style.text_style = style.text_style;
+                    styles.push_back(tmp_style);
                 } else if (c.kind == NodeKind::Element) {
                     auto style = style::Style{};
                     auto& ch = element_nodes[c.index];
