@@ -80,6 +80,12 @@ namespace termml::xml {
             return text;
         }
 
+        static constexpr auto can_have_children(std::string_view tag) noexcept -> bool {
+            if (tag == "br") return false;
+            if (tag == "img") return false;
+            return true;
+        }
+
         auto parse_start_tag(node_index_t node_index) -> bool {
             if (empty()) return false;
             if(!current_token().is(TokenKind::StartOpenTag)) return false;
@@ -153,7 +159,7 @@ namespace termml::xml {
             return true;
         }
 
-        auto parse_element(node_index_t root_index) -> void {
+        auto parse_element(node_index_t root_index, bool insert_children = true) -> void {
             if (empty()) return;
             if (current_token().is(TokenKind::Eof)) return;
 
@@ -163,18 +169,22 @@ namespace termml::xml {
             if (token.is(TokenKind::TextContent)) {
                 auto text = current_token().text(context->lexer.source);
 
-                root.childern.push_back({
-                    .index = context->text_nodes.size(),
-                    .kind = NodeKind::TextContent
-                });
+                if (insert_children) {
+                    root.childern.push_back({
+                        .index = context->text_nodes.size(),
+                        .kind = NodeKind::TextContent
+                    });
 
-                context->text_nodes.push_back({
-                    .token_index = m_index,
-                    .text = text
-                });
+                    context->text_nodes.push_back({
+                        .token_index = m_index,
+                        .text = text
+                    });
+                }
+
                 ++m_index;
             } else if (token.is(TokenKind::StartOpenTag)) {
                 auto node_index = context->element_nodes.size();
+                auto old_root_size = root.childern.size();
                 root.childern.push_back({
                     .index = node_index,
                     .kind = NodeKind::Element
@@ -191,9 +201,16 @@ namespace termml::xml {
                 if (empty()) return;
                 if (!current_token().is(TokenKind::EmptyCloseTag)) {
                     ++m_index;
+                    auto have_children = can_have_children(tag);
                     while (!empty() && !current_token().is(TokenKind::EndOpenTag, TokenKind::Eof)) {
-                        parse_element(node_index);
+                        parse_element(node_index, have_children);
                     }
+                }
+
+                if (!insert_children) {
+                    context->element_nodes.resize(node_index);
+                    root.childern.resize(old_root_size);
+                    root.childern.pop_back();
                 }
 
                 parse_end_tag(tag);
