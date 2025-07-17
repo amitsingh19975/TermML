@@ -3,6 +3,7 @@
 
 #include "device.hpp"
 #include "commands.hpp"
+#include "bounding_box.hpp"
 #include "utf8.hpp"
 #include <algorithm>
 #include <cassert>
@@ -40,7 +41,7 @@ namespace termml::core {
             }
         };
 
-        Terminal(int rows, int cols)
+        Terminal(int cols, int rows)
             : m_rows(static_cast<unsigned>(std::max(0, rows)))
             , m_cols(static_cast<unsigned>(std::max(0, cols)))
             , m_data(m_cols * m_rows, Cell())
@@ -113,6 +114,18 @@ namespace termml::core {
             }
 
             m_is_dirty = false;
+        }
+
+        auto flush(Terminal& t, unsigned dx, unsigned dy, BoundingBox viewport = BoundingBox::inf()) const -> void {
+            auto sr = static_cast<unsigned>(std::max(0, viewport.min_y()));
+            auto sc = static_cast<unsigned>(std::max(0, viewport.min_x()));
+            auto mr = static_cast<unsigned>(std::max(std::min(rows(), viewport.max_y()), 0));
+            auto mc = static_cast<unsigned>(std::max(std::min(cols(), viewport.max_x()), 0));
+            for (auto r = sr; r < mr; ++r) {
+                for (auto c = sc; c < mc; ++c) {
+                    t(r + dy, c + dx) = this->operator()(r, c);
+                }
+            }
         }
     private:
         static auto write_style(Command& cmd, PixelStyle const& style) -> void {

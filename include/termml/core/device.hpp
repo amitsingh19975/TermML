@@ -7,6 +7,7 @@
 #include "bounding_box.hpp"
 #include "utf8.hpp"
 #include <cassert>
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <string_view>
@@ -61,23 +62,28 @@ namespace termml::core {
     } // namespace detail
 
     struct NullScreen {
+        int ncols{std::numeric_limits<int>::max()};
+        int nrows{std::numeric_limits<int>::max()};
+
         constexpr auto put_pixel(
             [[maybe_unused]] std::string_view pixel,
             [[maybe_unused]] int x,
             [[maybe_unused]] int y,
-            [[maybe_unused]] PixelStyle const& p = {}
-        ) noexcept -> bool { return true; }
+            [[maybe_unused]] PixelStyle const& p
+        ) noexcept -> bool {
+            return x < cols() && y < rows();
+        }
 
         constexpr auto clear() noexcept -> void {}
 
         constexpr auto flush([[maybe_unused]] Command& cmd, unsigned, unsigned) noexcept -> void {}
 
         constexpr auto rows() const noexcept -> int {
-            return std::numeric_limits<int>::max();
+            return nrows;
         }
 
         constexpr auto cols() const noexcept -> int {
-            return std::numeric_limits<int>::max();
+            return ncols;
         }
     };
 
@@ -85,10 +91,10 @@ namespace termml::core {
 
     template <detail::IsScreen S>
     struct Device {
-        enum class PutPixelResult {
-            Clipped,
+        enum class PutPixelResult: std::uint8_t {
             OutOfBound,
-            Rendered
+            Rendered,
+            Clipped
         };
 
         Device(S* screen)
@@ -138,20 +144,20 @@ namespace termml::core {
         }
 
         constexpr auto write_text(
-            [[maybe_unused]] std::string_view text,
-            [[maybe_unused]] int x,
-            [[maybe_unused]] int y,
-            [[maybe_unused]] PixelStyle const& p = {}
+            std::string_view text,
+            int x,
+            int y,
+            PixelStyle const& p = {}
         ) noexcept -> std::pair<std::size_t /*text rendered*/, int /*pixels consumed*/> {
             auto i = std::size_t{};
-            if constexpr (!std::same_as<S, NullScreen>) {
-                for (; i < text.size(); ++x) {
-                    auto len = ::termml::core::utf8::get_length(text[i]);
-                    assert(i + len <= text.size());
-                    auto txt = text.substr(i, len);
-                    if (put_pixel(txt, x, y, p) == PutPixelResult::OutOfBound) break;
-                    i += len;
-                }
+            if (y >= m_viewport.max_y()) return { 0, x };
+            for (; i < text.size(); ++x) {
+                auto len = ::termml::core::utf8::get_length(text[i]);
+                assert(i + len <= text.size());
+                auto txt = text.substr(i, len);
+                if (put_pixel(txt, x, y, p) == PutPixelResult::OutOfBound) break;
+                if (x >= m_viewport.max_x()) break;
+                i += len;
             }
             return { i, x };
         }
