@@ -305,8 +305,8 @@ namespace termml::style {
                 bool is_neg = false;
                 if (s.starts_with('-')) {
                     is_neg = true;
+                    s = core::utils::ltrim(s.substr(1));
                 }
-                s = core::utils::trim(s.substr(1));
                 if (s.empty()) return def;
 
                 for (; j < s.size(); ++j) {
@@ -315,7 +315,7 @@ namespace termml::style {
                 std::from_chars(s.data(), s.data() + j, i);
                 auto u = s.substr(j);
                 if (u == "px" || u == "c" || u == "cell") {
-                    return { .i = i * (-1 * is_neg), .unit = Unit::Cell };
+                    return { .i = is_neg ? -i : i, .unit = Unit::Cell };
                 } else {
                     return def;
                 }
@@ -587,6 +587,14 @@ namespace termml::style {
         BreakWord
     };
 
+    struct TextStyle {
+        bool bold{};
+        bool italic{};
+        bool dim{};
+        bool underline{};
+        bool strike{};
+    };
+
     struct Style {
         Number min_width{ Number::min() };
         Number max_width{ Number::max() };
@@ -625,6 +633,8 @@ namespace termml::style {
 
         Whitespace whitespace{Whitespace::Normal};
         OverflowWrap overflow_wrap{OverflowWrap::Normal};
+
+        TextStyle text_style{};
 
         constexpr auto parse_proprties(
             std::string_view tag,
@@ -823,6 +833,12 @@ namespace termml::style {
                 else if (ws == "pre") whitespace = Whitespace::Pre;
                 else if (ws == "pre-line") whitespace = Whitespace::PreLine;
                 else if (ws == "pre-wrap") whitespace = Whitespace::PreWrap;
+            }
+
+            // text style
+            {
+                text_style.bold = (tag == "b");
+                text_style.italic = (tag == "i");
             }
         }
 

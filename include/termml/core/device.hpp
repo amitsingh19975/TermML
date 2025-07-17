@@ -21,13 +21,18 @@ namespace termml::core {
         bool dim{false};
         bool italic{false};
         bool underline{false};
+        bool strike{false};
         int z_index{};
 
         static constexpr auto from_style(style::Style const& style) noexcept -> PixelStyle {
             return {
                 .fg_color = style.fg_color,
                 .bg_color = style.bg_color,
-                // TODO: add font style properties to the style
+                .bold = style.text_style.bold,
+                .dim = style.text_style.dim,
+                .italic = style.text_style.italic,
+                .underline = style.text_style.underline,
+                .strike = style.text_style.strike,
                 .z_index = style.z_index
             };
         }
