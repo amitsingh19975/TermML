@@ -2,8 +2,8 @@
 #define AMT_TERMML_LAYOUT_HPP
 
 #include "style.hpp"
-#include "termml/core/bounding_box.hpp"
-#include "termml/text.hpp"
+#include "core/bounding_box.hpp"
+#include "text.hpp"
 #include "xml/node.hpp"
 #include <algorithm>
 #include <cctype>
