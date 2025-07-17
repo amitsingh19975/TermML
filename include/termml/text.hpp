@@ -56,7 +56,9 @@ namespace termml::text {
         }
 
         constexpr auto measure_height(style::Style const& style) const noexcept -> int {
-            return render(core::null_device(), style).container.height;
+            auto null = core::NullScreen(container.width, container.height);
+            auto d = core::Device(&null);
+            return render(d, style).container.height;
         }
 
         template <core::detail::IsScreen T>
@@ -75,7 +77,7 @@ namespace termml::text {
             //  |                                                        |
             //  |--------------------------------------------------------|
 
-            if (container.width == 0) {
+            if (container.width == 0 || container.height == 0) {
                 return {};
             }
 
@@ -124,11 +126,17 @@ namespace termml::text {
 
             auto start = std::size_t{};
             auto start_y = y;
+            auto extra_space = padding_right;
             do {
+                if (y + 1 >= container.max_y()) {
+                    extra_space = required_space + padding_right;
+                }
+
                 if (std::isspace(text[start])) {
                     if (x + 1 >= container.max_x()) {
                         ++y;
                         x = container.min_x();
+                        if (y >= container.max_y()) break;
                     }
                     auto render_whitespace = (
                         style.whitespace == style::Whitespace::Pre ||
@@ -151,14 +159,44 @@ namespace termml::text {
                 auto txt = text.substr(start, pos - start);
                 auto sz = static_cast<int>(core::utf8::calculate_size(txt));
 
-                if (x + sz + required_space >= container.max_x()) {
+
+                if (x + sz + extra_space >= container.max_x()) {
                     if (x != container.min_x()) {
                         ++y;
                         x = container.min_x();
+                        if (y >= container.max_y()) break;
                     }
                 }
 
-                x = device.write_text(txt, x, y, cell_style).second;
+                bool rendered = false;
+                if (style.overflow_wrap == style::OverflowWrap::BreakWord) {
+                    if (x + sz + extra_space >= container.max_x()) {
+                        for (auto i = 0ul; i < text.size(); ++x) {
+                            auto l = core::utf8::get_length(text[i]);
+                            if (x + static_cast<int>(l) + extra_space >= container.max_x()) {
+                                ++y;
+                                x = container.min_x();
+
+                                if (y >= container.max_y()) break;
+                                if (y + 1 >= container.max_y()) {
+                                    extra_space = required_space + padding_right;
+                                }
+                            }
+
+                            assert(i + l <= text.size());
+
+                            device.write_text(text.substr(i, l), x, y, cell_style);
+
+                            i += l;
+                        }
+                        rendered = true;
+                    }
+                }
+
+                if (!rendered) {
+                    x = device.write_text(txt, x, y, cell_style).second;
+                }
+
                 start = pos;
             } while (start < text.size());
 
