@@ -41,6 +41,7 @@ namespace termml::core {
             }
         };
 
+        Terminal() noexcept = default;
         Terminal(int cols, int rows)
             : m_rows(static_cast<unsigned>(std::max(0, rows)))
             , m_cols(static_cast<unsigned>(std::max(0, cols)))
