@@ -55,7 +55,7 @@ namespace termml::text {
             return width;
         }
 
-        constexpr auto measure_height(style::Style const& style) const noexcept -> int {
+        constexpr auto measure_height(style::Style const& style) noexcept -> int {
             auto null = core::NullScreen(container.width, container.height);
             auto d = core::Device(&null);
             return render(d, style).container.height;
@@ -65,7 +65,7 @@ namespace termml::text {
         auto render(
             core::Device<T>& device,
             style::Style const& style
-        ) const -> TextRenderResult {
+        ) -> TextRenderResult {
             //  |---------------------Scroll Container-------------------|
             //  |               |--------ViewBox---------|               |
             //  |               |                        |               |
@@ -94,7 +94,7 @@ namespace termml::text {
             auto x = container.x + dx;
             auto y = container.y + dy;
 
-            auto required_space = static_cast<int>(next_word_length * (style.whitespace == style::Whitespace::Pre));
+            auto required_space = static_cast<int>(next_word_length);
 
             auto padding_left = style.padding.left.as_cell() + style.border_left.border_width();
             auto padding_right = style.padding.right.as_cell() + style.border_right.border_width();
@@ -201,6 +201,10 @@ namespace termml::text {
             } while (start < text.size());
 
             box.height = y - start_y + 1;
+            start_offset = {
+                .x = x,
+                .y = y
+            };
 
             return { .container = box, .text_rendered = text.size() };
         };
