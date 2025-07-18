@@ -133,6 +133,7 @@ namespace termml::xml {
             });
             build_style_tree();
             collapse_whitespace();
+            fix_text_style();
         }
     private:
         template <typename F>
@@ -198,21 +199,8 @@ namespace termml::xml {
                 if (c.kind == NodeKind::TextContent) {
                     auto& ch = text_nodes[c.index];
                     ch.style_index = styles.size();
-                    auto const& style = styles[el.style_index];
-                    auto tmp_style = style::Style{};
-                    tmp_style.fg_color = style.fg_color;
-                    tmp_style.bg_color = style.bg_color;
-                    tmp_style.min_width = style.min_width;
-                    tmp_style.min_height = style.min_height;
-                    tmp_style.max_width = style.max_width;
-                    tmp_style.max_height = style.max_height;
-                    tmp_style.width = style.width;
-                    tmp_style.height = style.height;
-                    tmp_style.z_index = style.z_index;
-                    tmp_style.overflow_wrap = style.overflow_wrap;
-                    tmp_style.whitespace = style.whitespace;
-                    tmp_style.text_style = style.text_style;
-                    styles.push_back(tmp_style);
+                    auto style = style::Style{};
+                    styles.push_back(style);
                 } else if (c.kind == NodeKind::Element) {
                     auto style = style::Style{};
                     auto& ch = element_nodes[c.index];
@@ -312,7 +300,6 @@ namespace termml::xml {
         ) -> bool {
             auto const& el = element_nodes[node.index];
 
-
             for (auto c: el.childern) {
                 if (c.kind == NodeKind::TextContent) {
                     auto& ch = text_nodes[c.index];
@@ -361,6 +348,36 @@ namespace termml::xml {
             }
 
             return last_char_was_whitespace;
+        }
+
+        constexpr auto fix_text_style(Node const& node = root) noexcept -> void {
+            auto const& el = element_nodes[node.index];
+            auto const& style = styles[el.style_index];
+
+            for (auto c: el.childern) {
+                if (c.kind == NodeKind::TextContent) {
+                    auto& ch = text_nodes[c.index];
+                    auto& tmp_style = styles[ch.style_index];
+                    if (ch.normalized_text.empty()) {
+                        tmp_style.display = style::Display::Inline;
+                        continue;
+                    }
+                    tmp_style.fg_color = style.fg_color;
+                    tmp_style.bg_color = style.bg_color;
+                    tmp_style.min_width = style.min_width;
+                    tmp_style.min_height = style.min_height;
+                    tmp_style.max_width = style.max_width;
+                    tmp_style.max_height = style.max_height;
+                    tmp_style.width = style.width;
+                    tmp_style.height = style.height;
+                    tmp_style.z_index = style.z_index;
+                    tmp_style.overflow_wrap = style.overflow_wrap;
+                    tmp_style.whitespace = style.whitespace;
+                    tmp_style.text_style = style.text_style;
+                } else if (c.kind == NodeKind::Element) {
+                    fix_text_style(c);
+                }
+            }
         }
     };
 
