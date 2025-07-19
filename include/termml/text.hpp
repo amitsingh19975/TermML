@@ -39,20 +39,20 @@ namespace termml::text {
 
         // Message content width; ignore padding and margin
         constexpr auto measure_width() const noexcept -> int {
-            int width{};
+            std::size_t width{};
             auto start = std::size_t{};
             auto it = std::min(text.find('\n'), text.size());
             while (it < text.size()) {
-                auto w = static_cast<int>(it - start);
-                width = std::max(width, w);
+                auto txt = text.substr(start, it);
+                width = std::max<std::size_t>(width, core::utf8::calculate_size(txt));
                 start = it + 1;
                 it = std::min(text.find('\n', start), text.size());
             }
 
-            auto w = static_cast<int>(it - start);
-            width = std::max(width, w);
+            auto txt = text.substr(start);
+            width = std::max<std::size_t>(width, core::utf8::calculate_size(txt));
 
-            return width;
+            return static_cast<int>(width);
         }
 
         constexpr auto measure_height(style::Style const& style) noexcept -> int {
@@ -94,10 +94,11 @@ namespace termml::text {
             auto x = container.x + dx;
             auto y = container.y + dy;
 
-            auto required_space = static_cast<int>(next_word_length);
-
             auto padding_left = style.padding.left.as_cell() + style.border_left.border_width();
             auto padding_right = style.padding.right.as_cell() + style.border_right.border_width();
+
+            auto required_space = static_cast<int>(next_word_length);
+            if (padding_right > 0 || style.margin.right.as_cell() > 0) required_space = 0;
 
             auto len = static_cast<int>(core::utf8::calculate_size(text));
 
@@ -159,8 +160,7 @@ namespace termml::text {
                 auto txt = text.substr(start, pos - start);
                 auto sz = static_cast<int>(core::utf8::calculate_size(txt));
 
-
-                if (x + sz + extra_space >= container.max_x()) {
+                if (x - dx + sz + extra_space > container.max_x()) {
                     if (x != container.min_x()) {
                         ++y;
                         x = container.min_x();
@@ -170,7 +170,7 @@ namespace termml::text {
 
                 bool rendered = false;
                 if (style.overflow_wrap == style::OverflowWrap::BreakWord) {
-                    if (x + sz + extra_space >= container.max_x()) {
+                    if (x - dx + sz + extra_space > container.max_x()) {
                         for (auto i = 0ul; i < text.size(); ++x) {
                             auto l = core::utf8::get_length(text[i]);
                             if (x + static_cast<int>(l) + extra_space >= container.max_x()) {
