@@ -5,6 +5,9 @@
 #include "core/bounding_box.hpp"
 #include "core/point.hpp"
 #include "core/terminal.hpp"
+#include "core/device.hpp"
+#include "core/string_utils.hpp"
+#include "utils.hpp"
 #include "text.hpp"
 #include "xml/node.hpp"
 #include <algorithm>
@@ -25,8 +28,10 @@ namespace termml::layout {
         std::vector<node_index_t> children{};
         core::BoundingBox container{};
         core::BoundingBox viewport{}; // if std::nullopt, bounds are not resolved.
-        int content_x{};
-        int content_y{};
+        int content_offset_x{};
+        int content_offset_y{};
+        bool start_from_newline{true};
+        bool trim_end_whitespace{false};
 
         core::Terminal canvas{};
 
@@ -76,6 +81,11 @@ namespace termml::layout {
             compute_layout(context, viewport);
         }
 
+        template <core::detail::IsScreen S>
+        auto render(core::Device<S>& dev, xml::Context const* context, node_index_t node = 0) -> void {
+            render_node(dev, context, node);
+        }
+
         auto dump(xml::Context const* context, node_index_t index = 0, unsigned level = 0) const -> void {
             auto tab = level * 4;
             auto const& l = nodes[index];
@@ -84,7 +94,7 @@ namespace termml::layout {
                 std::println("{:{}}   |- Text: '{}'", ' ', tab, l.text);
             }
 
-            std::println("{:{}}   |- Viewport: {}, Container: {}", ' ', tab, l.viewport, l.container);
+            std::println("{:{}}   |- Viewport: {}, Container: {} | Offset: ({}, {}) | {}", ' ', tab, l.viewport, l.container, l.content_offset_x, l.content_offset_y, l.start_from_newline);
             std::println("{:{}}   |- Style: [{}]", ' ', tab, context->styles[l.style_index]);
 
             for (auto n: l.children) {
@@ -116,6 +126,7 @@ namespace termml::layout {
                 auto next_index = nodes.size();
                 if (ch.kind == xml::NodeKind::TextContent) {
                     auto txt = context->text_nodes[ch.index].normalized_text;
+                    if (txt.empty()) continue;
 
                     nodes.push_back({
                         .tag = {},
@@ -158,6 +169,7 @@ namespace termml::layout {
                 for (auto l: layout.children) {
                     auto& ts = context->styles[nodes[l].style_index];
                     resolve_style_width_releated_props(ts, style.width.i);
+                    ts.margin = ts.margin.resolve(style.width.i);
                     resolve_style(context, l);
                 }
             }
@@ -193,42 +205,61 @@ namespace termml::layout {
             }
 
             style.padding = style.padding.resolve(parent_width);
-            style.margin = style.margin.resolve(parent_width);
             style.inset = style.inset.resolve(parent_width);
         }
 
         constexpr auto resolve_cyclic_width(
             xml::Context* context,
             node_index_t node,
-            int max_parent_width
+            int max_parent_width,
+            int right_margin = 0,
+            bool is_next_element_inline = false
         ) noexcept -> int /*container width*/ {
-            auto const& el = nodes[node];
+            auto& el = nodes[node];
             auto& style = context->styles[el.style_index];
             auto content_width = 0;
 
             if (el.tag.empty() && node != 0) {
+                if (style.whitespace != style::Whitespace::Normal) {
+                    is_next_element_inline = false;
+                }
+
+                el.trim_end_whitespace = !is_next_element_inline;
                 auto text = text::TextRenderer{
-                    .text = el.text
+                    .text = el.trim_end_whitespace == false ? el.text : core::utils::rtrim(el.text),
                 };
                 content_width = std::min(text.measure_width(), max_parent_width);
             }
 
-            for (auto l: el.children) {
+            for (auto i = 0ul; i < el.children.size(); ++i) {
+                auto l = el.children[i];
                 auto const& c = nodes[l];
                 auto& cs = context->styles[c.style_index];
+                cs.margin = cs.margin.resolve(max_parent_width);
+
+                if (i + 1 < el.children.size()) {
+                    auto const& nc = nodes[el.children[i + 1]];
+                    auto const& ns = context->styles[nc.style_index];
+                    is_next_element_inline = (ns.display == style::Display::Inline || ns.display == style::Display::InlineBlock) && (cs.display == style::Display::Inline || cs.display == style::Display::InlineBlock);
+                }
+
                 if (cs.width.is_absolute()) {
                     content_width = std::max(content_width, cs.width.i);
-                    resolve_cyclic_width(context, l, cs.width.i);
+                    resolve_cyclic_width(context, l, cs.width.i, right_margin, is_next_element_inline);
                 } else if (cs.width.is_fit()) {
                     auto parent_width = style.width.is_absolute() ? style.width.i : max_parent_width;
                     content_width = std::max(
                         content_width,
-                        resolve_cyclic_width(context, l, parent_width)
+                        resolve_cyclic_width(context, l, parent_width, right_margin, is_next_element_inline)
                     );
                 } else if (cs.width.is_precentage()) {
                     // cannot resolve this so we set this to 0
                     resolve_style_width_releated_props(cs, 0, true);
                 }
+
+                // TODO: support negative margins
+                content_width += std::max(std::abs(right_margin - cs.margin.left.as_cell()), 0);
+                right_margin = cs.margin.right.as_cell();
             }
 
             auto& padding = style.padding;
@@ -337,12 +368,12 @@ namespace termml::layout {
             auto& style = context->styles[el.style_index];
             auto content_height = 0;
 
+            auto last_y_pos = param.start_offset.y;
+            auto last_line_margin = param.v_margin;
+
             if (style.display != style::Display::Inline) {
                 ++param.start_offset.y;
                 param.start_offset.x = 0;
-            }
-
-            if (el.tag == "br") {
                 content_height += 1;
             }
 
@@ -353,21 +384,21 @@ namespace termml::layout {
                     .next_word_length = param.sibling_word_size
                 };
                 auto tmp = text.measure_height(style);
-                content_height = std::min(tmp, max_parent_height);
+                content_height = std::min(std::max(tmp, content_height), max_parent_height);
                 param.start_offset = text.start_offset;
             }
-
-            auto last_y_pos = param.start_offset.y;
-            auto last_line_margin = param.v_margin;
 
             auto top_margin = 0;
             auto previous_block_end_margin = 0;
 
             for (auto i = 0ul; i < el.children.size(); ++i) {
                 auto l = el.children[i];
-                auto const& c = nodes[l];
+                auto& c = nodes[l];
                 auto& cs = context->styles[c.style_index];
-                auto sib_space = get_inline_sibling_word_size(context, node, i);
+                if (cs.display == style::Display::Block) {
+                    c.start_from_newline = true;
+                }
+                auto sib_space = c.start_from_newline ? 0 : get_inline_sibling_word_size(context, node, i);
                 param.sibling_word_size = sib_space;
                 auto [pt, pb] = param.v_padding;
 
@@ -387,11 +418,21 @@ namespace termml::layout {
                 } else if (cs.height.is_fit()) {
                     auto parent_width = style.height.is_absolute() ? style.height.i : max_parent_height;
                     tmp = resolve_cyclic_height(context, l, parent_width, param);
-
                 } else if (cs.height.is_precentage()) {
                     // cannot resolve this so we set this to 0
                     resolve_style_height_releated_props(cs, 0, true);
                     tmp = param;
+                }
+
+                c.start_from_newline |= (tmp.start_offset.y != param.start_offset.y);
+
+                if (cs.display == style::Display::Block) {
+                    c.start_from_newline = true;
+                }
+
+                if (c.children.size() == 1) {
+                    auto const& t = nodes[c.children[0]];
+                    c.start_from_newline |= t.start_from_newline;
                 }
 
                 if (last_y_pos == tmp.start_offset.y) {
@@ -404,7 +445,7 @@ namespace termml::layout {
                         std::max(tmp.v_padding.second, param.v_margin.second),
                     };
                 } else {
-                    tmp.height += param.v_margin.first + param.v_padding.second;
+                    tmp.height += param.v_padding.second;
                     tmp.height += std::abs(param.v_margin.first - top_margin);
 
                     top_margin = param.v_margin.second;
@@ -412,11 +453,7 @@ namespace termml::layout {
                     param.v_margin = {};
                 }
                 last_y_pos = tmp.start_offset.y;
-                content_height = std::max(
-                    content_height,
-                    tmp.height
-                );
-
+                content_height = content_height + tmp.height;
                 previous_block_end_margin = cs.margin.right.as_cell();
             }
 
@@ -438,7 +475,8 @@ namespace termml::layout {
         auto compute_layout(
             xml::Context const* context,
             core::BoundingBox container,
-            node_index_t node = 0
+            node_index_t node = 0,
+            int level = 0
         ) -> void {
             auto& el = nodes[node];
             {
@@ -479,29 +517,174 @@ namespace termml::layout {
                 auto vp = tmp_vp;
                 vp.width = std::min(style.width.as_cell(), tmp_vp.width);
                 vp.height = std::min(style.height.as_cell(), tmp_vp.height);
-                ch.content_x = vp.x + style.padding.left.as_cell() + std::abs(previous_end_margin - style.margin.left.as_cell());
-                ch.content_y = container.y + style.padding.top.as_cell();
+
+                ch.content_offset_x = style.padding.left.as_cell() + std::abs(previous_end_margin - style.margin.left.as_cell()) + style.border_left.border_width();
+                ch.content_offset_y = style.padding.top.as_cell() + style.border_top.border_width();
                 previous_end_margin = style.margin.right.as_cell();
 
-                compute_layout(context, vp, c);
+                ch.content_offset_x += std::max(el.content_offset_x - el.container.x, 0);
+                ch.content_offset_y += std::max(el.content_offset_y - el.container.y, 0);
 
-                auto h = std::max(vp.height - 1, 0);
-                if (style.display == style::Display::Block) {
-                    h = 1;
-                }
+                compute_layout(context, vp, c, level + 1);
 
-                tmp_vp.x = h != 0 ? tmp_vp.x + vp.width : el.container.x;
-                tmp_vp.y += h;
+                if (ch.start_from_newline) {
+                    tmp_vp.x = el.container.min_x();
+                    tmp_vp.y += vp.height;
 
-                if (h != 0) {
                     auto margin = std::abs(v_margin.first - top_margin);
                     for (auto i = previous_node_start; i < c; ++i) {
                         auto& tmp = nodes[i];
-                        tmp.content_y += margin;
+                        tmp.content_offset_y += margin;
                     }
                     previous_node_start = c;
                     top_margin = v_margin.second;
                     v_margin = {};
+                } else {
+                    tmp_vp.x = vp.max_x();
+                }
+            }
+        }
+
+        template <core::detail::IsScreen S>
+        auto render_node(
+            core::Device<S>& dev,
+            xml::Context const* context,
+            node_index_t node,
+            bool ignore_scroll = false,
+            bool is_next_element_inline = false
+        ) -> void {
+            auto& el = nodes[node];
+            auto const& style = context->styles[el.style_index];
+
+            if (el.tag.empty() && node != 0) {
+                text::TextRenderer t {
+                    .text = el.trim_end_whitespace == false ? el.text : core::utils::rtrim(el.text),
+                    .container = el.container,
+                    .start_offset = {
+                        el.content_offset_x + el.container.x,
+                        el.content_offset_y + el.container.y
+                    },
+                };
+                t.render(dev, style);
+                return;
+            }
+
+            if (!ignore_scroll && (el.is_scrollable_x() || el.is_scrollable_y())) {
+                auto d = core::Device(&el.canvas);
+                render_node(d, context, node, true);
+                core::ViewportClipGuard clip(dev, el.viewport);
+                for (auto r = 0; r < el.canvas.rows(); ++r) {
+                    for (auto c = 0; c < el.canvas.cols(); ++c) {
+                        auto const& cell = el.canvas(static_cast<unsigned>(r), static_cast<unsigned>(c));
+                        auto x = c + el.container.x;
+                        auto y = r + el.container.y;
+                        dev.put_pixel(cell.text(), x, y, cell.style);
+                    }
+                }
+            } else {
+                for (auto i = 0ul; i < el.children.size(); ++i) {
+                    auto c = el.children[i];
+                    auto const& ch = nodes[c];
+
+                    if (ch.tag.empty()) {
+                        // std::println("HERE: \t\t\t\t\t\t\t\t{} | '{}' | {}, {}", ch.viewport, ch.text, ch.content_offset_x, ch.content_offset_y);
+                        render_node(dev, context, c, false, is_next_element_inline);
+                    } else {
+                        // std::println("{:{}}HERE[{}]: {} | {}", ' ', 60, el.tag, el.text, ch.viewport);
+                        core::ViewportClipGuard g(dev, ch.viewport);
+                        render_node(dev, context, c, false, is_next_element_inline);
+                    }
+                }
+            }
+
+            auto [tl_border_style, tr_border_style, br_border_style, bl_border_style] = style.border_type;
+            auto border_style = core::PixelStyle::from_style(style);
+            if (style.border_top.width.as_cell() != 0) {
+                // top
+                auto set = style.border_top.char_set(tl_border_style);
+
+                border_style.fg_color = style.border_top.color;
+                for (auto c = el.container.min_x(); c < el.container.max_x(); ++c) {
+                    auto r = el.container.min_y();
+                    dev.put_pixel(set.horizonal, c, r, border_style);
+                }
+            }
+
+            if (style.border_bottom.width.as_cell() != 0) {
+                // bottom
+                auto set = style.border_bottom.char_set(tl_border_style);
+
+                border_style.fg_color = style.border_bottom.color;
+                for (auto c = el.container.min_x(); c < el.container.max_x(); ++c) {
+                    auto r = el.container.max_y() - 1;
+                    dev.put_pixel(set.horizonal, c, r, border_style);
+                }
+            }
+
+            if (style.border_left.width.as_cell() != 0) {
+                // left
+                auto set = style.border_left.char_set(tl_border_style);
+
+                border_style.fg_color = style.border_left.color;
+                for (auto r = el.container.min_y(); r < el.container.max_y(); ++r) {
+                    auto c = el.container.min_x();
+                    dev.put_pixel(set.vertical, c, r, border_style);
+                }
+            }
+
+            if (style.border_left.width.as_cell() != 0) {
+                // right
+                auto set = style.border_right.char_set(tl_border_style);
+
+                border_style.fg_color = style.border_right.color;
+                for (auto r = el.container.min_y(); r < el.container.max_y(); ++r) {
+                    auto c = el.container.max_x() - 1;
+                    dev.put_pixel(set.vertical, c, r, border_style);
+                }
+            }
+            { // corners
+                std::string_view corner{};
+                // top-left
+                if (style.border_top.width.as_cell() != 0 && style.border_left.width.as_cell() != 0) {
+                    corner = style.border_top.char_set(tl_border_style).top_left;
+                }
+
+                if (!corner.empty()) {
+                    border_style.fg_color = style.border_left.color;
+                    dev.put_pixel(corner, el.container.min_x(), el.container.min_y(), border_style);
+                }
+                corner = {};
+
+                // top-right
+                if (style.border_top.width.as_cell() != 0 && style.border_right.width.as_cell() != 0) {
+                    corner = style.border_top.char_set(tr_border_style).top_right;
+                }
+
+                if (!corner.empty()) {
+                    border_style.fg_color = style.border_right.color;
+                    dev.put_pixel(corner, el.container.max_x() - 1, el.container.min_y(), border_style);
+                }
+                corner = {};
+
+                // bottom-right
+                if (style.border_bottom.width.as_cell() != 0 && style.border_right.width.as_cell() != 0) {
+                    corner = style.border_bottom.char_set(br_border_style).bottom_right;
+                }
+
+                if (!corner.empty()) {
+                    border_style.fg_color = style.border_right.color;
+                    dev.put_pixel(corner, el.container.max_x() - 1, el.container.max_y() - 1, border_style);
+                }
+                corner = {};
+
+                // bottom-right
+                if (style.border_bottom.width.as_cell() != 0 && style.border_left.width.as_cell() != 0) {
+                    corner = style.border_bottom.char_set(br_border_style).bottom_left;
+                }
+
+                if (!corner.empty()) {
+                    border_style.fg_color = style.border_left.color;
+                    dev.put_pixel(corner, el.container.min_x(), el.container.max_y() - 1, border_style);
                 }
             }
         }
