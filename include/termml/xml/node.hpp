@@ -296,11 +296,12 @@ namespace termml::xml {
         auto collapse_whitespace(
             Node const& node = root,
             bool inline_context = false,
-            bool last_char_was_whitespace = false
+            bool last_char_was_whitespace = true
         ) -> bool {
             auto const& el = element_nodes[node.index];
 
-            for (auto c: el.childern) {
+            for (auto i = 0ul; i < el.childern.size(); ++i) {
+                auto const& c = el.childern[i];
                 if (c.kind == NodeKind::TextContent) {
                     auto& ch = text_nodes[c.index];
                     auto& style = styles[ch.style_index];
@@ -330,6 +331,7 @@ namespace termml::xml {
                     if (last_char_was_whitespace) {
                         txt = core::utils::ltrim(txt, pattern);
                     }
+
 
                     if (!inline_context) {
                         ch.normalized_text = core::utils::trim(txt, pattern);
@@ -364,12 +366,6 @@ namespace termml::xml {
                     }
                     tmp_style.fg_color = style.fg_color;
                     tmp_style.bg_color = style.bg_color;
-                    tmp_style.min_width = style.min_width;
-                    tmp_style.min_height = style.min_height;
-                    tmp_style.max_width = style.max_width;
-                    tmp_style.max_height = style.max_height;
-                    tmp_style.width = style.width;
-                    tmp_style.height = style.height;
                     tmp_style.z_index = style.z_index;
                     tmp_style.overflow_wrap = style.overflow_wrap;
                     tmp_style.whitespace = style.whitespace;
