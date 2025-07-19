@@ -173,6 +173,8 @@ namespace termml::core {
 
         constexpr auto viewport() const noexcept -> BoundingBox { return m_viewport; }
 
+        constexpr auto inner() noexcept -> S& { return *m_screen; }
+        constexpr auto inner() const noexcept -> S const& { return *m_screen; }
     private:
         S* m_screen;
         BoundingBox m_viewport{BoundingBox::inf()};
