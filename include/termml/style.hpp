@@ -3,6 +3,7 @@
 
 #include "core/color_utils.hpp"
 #include "core/string_utils.hpp"
+#include "utils.hpp"
 #include <array>
 #include <charconv>
 #include <cstdlib>
@@ -39,11 +40,11 @@ namespace termml::style {
         static constexpr std::string_view border_top       = "border-top";
         static constexpr std::string_view border_bottom    = "border-bottom";
 
-        static constexpr std::string_view border_type                = "border_type";
-        static constexpr std::string_view border_type_top_left       = "border_type_top_left";
-        static constexpr std::string_view border_type_top_right      = "border_type_top_right";
-        static constexpr std::string_view border_type_bottom_left    = "border_type_bottom_left";
-        static constexpr std::string_view border_type_bottom_right   = "border_type_bottom_right";
+        static constexpr std::string_view border_type                = "border-type";
+        static constexpr std::string_view border_type_top_left       = "border-type-top-left";
+        static constexpr std::string_view border_type_top_right      = "border-type-top-right";
+        static constexpr std::string_view border_type_bottom_left    = "border-type-bottom-left";
+        static constexpr std::string_view border_type_bottom_right   = "border-type-bottom-right";
 
         static constexpr std::string_view inset = "inset";
         static constexpr std::string_view top = "top";
@@ -436,6 +437,12 @@ namespace termml::style {
         Dotted
     };
 
+    enum class BorderType {
+        Sharp,
+        Rounded
+    };
+
+
     inline static constexpr auto parse_border_style(std::string_view s, BorderStyle def = BorderStyle::None) noexcept -> BorderStyle {
         if (s == "solid") return BorderStyle::Solid;
         if (s == "dotted") return BorderStyle::Dotted;
@@ -502,11 +509,61 @@ namespace termml::style {
 
         constexpr auto is_thick() const noexcept -> bool { return width.as_cell() == 2; }
         constexpr auto is_thin() const noexcept -> bool { return width.as_cell() == 1; }
-    };
 
-    enum class BorderType {
-        Sharp,
-        Rounded
+        constexpr auto char_set(BorderType type) const noexcept -> utils::BoxCharSet {
+            auto horizontal = utils::char_set::box::rounded.horizonal;
+            auto vertical = utils::char_set::box::rounded.vertical;
+            auto tl = utils::char_set::box::dotted.top_left;
+            auto tr = utils::char_set::box::dotted.top_right;
+            auto br = utils::char_set::box::dotted.bottom_right;
+            auto bl = utils::char_set::box::dotted.bottom_left;
+
+            if (type == BorderType::Rounded) {
+                tl = utils::char_set::box::rounded.top_left;
+                tr = utils::char_set::box::rounded.top_right;
+                br = utils::char_set::box::rounded.bottom_right;
+                bl = utils::char_set::box::rounded.bottom_left;
+            }
+
+            if (style == BorderStyle::Dotted) {
+                horizontal = utils::char_set::box::dotted.horizonal;
+                vertical = utils::char_set::box::dotted.vertical;
+            }
+
+            if (width.as_cell() == 2) {
+                if (style == style::BorderStyle::Dotted) {
+                    horizontal = utils::char_set::box::dotted_bold.horizonal;
+                    vertical = utils::char_set::box::dotted_bold.vertical;
+                } else {
+                    horizontal = utils::char_set::box::rounded_bold.horizonal;
+                    vertical = utils::char_set::box::rounded_bold.vertical;
+                }
+                if (type == style::BorderType::Rounded) {
+                    tl = utils::char_set::box::rounded_bold.top_left;
+                    tr = utils::char_set::box::rounded_bold.top_right;
+                    br = utils::char_set::box::rounded_bold.bottom_right;
+                    bl = utils::char_set::box::rounded_bold.bottom_left;
+                } else {
+                    tl = utils::char_set::box::dotted_bold.top_left;
+                    tr = utils::char_set::box::dotted_bold.top_right;
+                    br = utils::char_set::box::dotted_bold.bottom_right;
+                    bl = utils::char_set::box::dotted_bold.bottom_left;
+                }
+            }
+
+            return {
+                .vertical = vertical,
+                .horizonal = horizontal,
+                .top_left = tl,
+                .top_right = tr,
+                .bottom_right = br,
+                .bottom_left = bl,
+                .left_connector = "",
+                .top_connector = "",
+                .right_connector = "",
+                .bottom_connector = ""
+            };
+        }
     };
 
     inline static constexpr auto parse_border_type(std::string_view s, BorderType def = BorderType::Sharp) noexcept -> std::tuple<BorderType, BorderType, BorderType, BorderType> {
@@ -526,7 +583,7 @@ namespace termml::style {
             for (; i < s.size(); ++i) {
                 if (std::isspace(s[i])) break;
             }
-    
+
             auto text = s.substr(start, i - start);
             if (text == "rounded") {
                 tmp[k++] = BorderType::Rounded;
@@ -615,8 +672,8 @@ namespace termml::style {
         std::tuple<
             BorderType /*tl*/,
             BorderType /*tr*/,
-            BorderType /*bl*/,
-            BorderType /*br*/
+            BorderType /*br*/,
+            BorderType /*bl*/
         > border_type{ BorderType::Sharp, BorderType::Sharp, BorderType::Sharp, BorderType::Sharp };
 
         QuadProperty padding{};
@@ -725,6 +782,36 @@ namespace termml::style {
                 }
                 if (!tb_left.empty()) {
                     border_left = Border::parse(tb_left);
+                }
+
+                auto bt = get_property(props, CSSPropertyKey::border_type);
+                auto bt_tl = get_property(props, CSSPropertyKey::border_type_top_left);
+                auto bt_tr = get_property(props, CSSPropertyKey::border_type_top_right);
+                auto bt_br = get_property(props, CSSPropertyKey::border_type_bottom_right);
+                auto bt_bl = get_property(props, CSSPropertyKey::border_type_bottom_left);
+
+                if (!bt.empty()) {
+                    auto b = parse_border_type(bt);
+                    border_type = b;
+                }
+                if (!bt_tl.empty()) {
+                    auto b = parse_border_type(bt_tl);
+                    std::get<0>(border_type) = std::get<0>(b);
+                }
+
+                if (!bt_tr.empty()) {
+                    auto b = parse_border_type(bt_tr);
+                    std::get<1>(border_type) = std::get<1>(b);
+                }
+
+                if (!bt_br.empty()) {
+                    auto b = parse_border_type(bt_br);
+                    std::get<2>(border_type) = std::get<2>(b);
+                }
+
+                if (!bt_bl.empty()) {
+                    auto b = parse_border_type(bt_bl);
+                    std::get<3>(border_type) = std::get<3>(b);
                 }
             }
 
