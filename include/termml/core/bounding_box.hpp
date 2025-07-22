@@ -1,6 +1,7 @@
 #ifndef AMT_TERMML_CORE_BOUNDING_BOX_HPP
 #define AMT_TERMML_CORE_BOUNDING_BOX_HPP
 
+#include <algorithm>
 #include <limits>
 
 namespace termml::core {
@@ -42,6 +43,15 @@ namespace termml::core {
 
         constexpr auto within_x(int x_) const noexcept -> bool {
             return min_x() <= x_ && x_ < max_x();
+        }
+
+        static constexpr auto from(int min_x, int max_x, int min_y, int max_y) noexcept -> BoundingBox {
+            return {
+                .x = min_x,
+                .y = min_y,
+                .width = std::max(max_x - min_x, 0),
+                .height = std::min(max_y - min_y, 0)
+            };
         }
     };
 
