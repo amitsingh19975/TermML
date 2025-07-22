@@ -1,18 +1,21 @@
 #ifndef AMT_TERMML_TEXT_HPP
 #define AMT_TERMML_TEXT_HPP
 
-#include "style.hpp"
-#include "core/bounding_box.hpp"
-#include "core/point.hpp"
-#include "core/device.hpp"
-#include "core/utf8.hpp"
+#include "../css/style.hpp"
+#include "../core/bounding_box.hpp"
+#include "../core/point.hpp"
+#include "../core/utf8.hpp"
+#include "line_box.hpp"
+#include <cassert>
 #include <cctype>
+#include <vector>
 
-namespace termml::text {
+namespace termml::layout {
 
     struct TextRenderResult {
         core::BoundingBox container;
         std::size_t text_rendered{};
+        LineSpan span{};
     };
 
     namespace detail {
@@ -26,16 +29,12 @@ namespace termml::text {
         }
     } // namespace detail
 
-    struct TextRenderer {
+    struct TextLayouter {
         std::string_view text;
         // Scroll container
         core::BoundingBox container{core::BoundingBox::inf()};
         // position within the scroll container
-        core::Point start_offset{};
-
-        // next word length for word wrapping if next char after
-        // the end of this text is not whitespace or breakable.
-        std::size_t next_word_length{};
+        core::Point start_position{};
 
         // Message content width; ignore padding and margin
         constexpr auto measure_width() const noexcept -> int {
@@ -55,16 +54,10 @@ namespace termml::text {
             return static_cast<int>(width);
         }
 
-        constexpr auto measure_height(style::Style const& style) noexcept -> int {
-            auto null = core::NullScreen(container.width, container.height);
-            auto d = core::Device(&null);
-            return render(d, style).container.height;
-        }
-
-        template <core::detail::IsScreen T>
-        auto render(
-            core::Device<T>& device,
-            style::Style const& style
+        auto operator()(
+            std::vector<layout::LineBox>& lines,
+            std::size_t previous_text,
+            css::Style const& style
         ) -> TextRenderResult {
             //  |---------------------Scroll Container-------------------|
             //  |               |--------ViewBox---------|               |
@@ -87,61 +80,68 @@ namespace termml::text {
             box.height = 0;
             if (width == 0) return { .container = box };
 
-            auto dx = start_offset.x - container.x;
-            auto dy = start_offset.y - container.y;
+            auto dx = start_position.x - container.x;
+            auto dy = start_position.y - container.y;
             if (dx < 0 || dy < 0) return { .container = box };
 
             auto x = container.x + dx;
             auto y = container.y + dy;
 
-            auto padding_left = style.padding.left.as_cell() + style.border_left.border_width();
-            auto padding_right = style.padding.right.as_cell() + style.border_right.border_width();
-
-            auto required_space = static_cast<int>(next_word_length);
-            if (padding_right > 0 || style.margin.right.as_cell() > 0) required_space = 0;
-
             auto len = static_cast<int>(core::utf8::calculate_size(text));
 
-            x += padding_left;
-
-            if (container.max_x() - (x + padding_right) < 0) {
-                box.width = std::max(0, container.max_x() - (x + padding_right));
-                return { .container = box };
+            { // check if it's a continuation of the sentence.
+                if (lines.size() == previous_text + 1) {
+                    auto& line = lines[previous_text];
+                    if (!(line.line.empty() || line.line == " ")) {
+                        if (line.bounds.max_x() == x && line.bounds.min_y() == y) {
+                            if (line.bounds.max_x() + len >= container.max_x()) {
+                                line.bounds.x = container.min_x();
+                                line.bounds.y += 1;
+                                x = line.bounds.max_x();
+                                y = line.bounds.y;
+                            }
+                        }
+                    }
+                }
             }
 
-            if (x + len + padding_right + required_space < container.max_x()) {
+            auto line_start = static_cast<unsigned>(lines.size());
+
+            if (x + len < container.max_x()) {
                 box.height = 1;
-                auto end_x = device.write_text(text, x, y, core::PixelStyle::from_style(style)).second;
-                auto w = end_x - x;
-                box.width = w + padding_right + required_space;
-                return { .container = box, .text_rendered = text.size() };
+                auto span = LineSpan{ line_start, 1u };
+                lines.push_back(LineBox{
+                    .line = text,
+                    .bounds = { x, y, len, 1 }
+                });
+                auto w = static_cast<int>(core::utf8::calculate_size(text));
+                box.width = w;
+                box.x = x;
+                box.y = y;
+                return { .container = box, .text_rendered = text.size(), .span = span };
             }
 
-            box.x = container.x;
+            box.x = x;
+            box.y = y;
             box.width = std::min(
-                width + padding_right + padding_left + required_space,
+                width,
                 container.width
             );
 
-            auto cell_style = core::PixelStyle::from_style(style);
-
             auto start = std::size_t{};
             auto start_y = y;
-            auto extra_space = padding_right;
+            auto max_x = x;
             do {
-                if (y + 1 >= container.max_y()) {
-                    extra_space = required_space + padding_right;
-                }
-
                 if (std::isspace(text[start])) {
                     if (x + 1 >= container.max_x()) {
                         ++y;
                         x = container.min_x();
+                        dx = 0, dy = 0;
                         if (y >= container.max_y()) break;
                     }
                     auto render_whitespace = (
-                        style.whitespace == style::Whitespace::Pre ||
-                        style.whitespace == style::Whitespace::PreWrap ||
+                        style.whitespace == css::Whitespace::Pre ||
+                        style.whitespace == css::Whitespace::PreWrap ||
                         x != container.min_x()
                     );
                     if (render_whitespace) {
@@ -150,9 +150,10 @@ namespace termml::text {
                             x = container.min_x();
                             x_inc = 0;
                             ++y;
+                            dx = 0, dy = 0;
                         }
-                        device.put_pixel(" ", x, y, cell_style);
                         x += x_inc;
+                        max_x = std::max(max_x, x);
                     }
                     start += 1;
                 }
@@ -160,56 +161,81 @@ namespace termml::text {
                 auto txt = text.substr(start, pos - start);
                 auto sz = static_cast<int>(core::utf8::calculate_size(txt));
 
-                if (x - dx + sz + extra_space > container.max_x()) {
+                if (x - dx + sz > container.max_x()) {
                     if (x != container.min_x()) {
                         ++y;
                         x = container.min_x();
+                        dx = 0;
+                        dy = 0;
                         if (y >= container.max_y()) break;
                     }
                 }
 
                 bool rendered = false;
-                if (style.overflow_wrap == style::OverflowWrap::BreakWord) {
-                    if (x - dx + sz + extra_space > container.max_x()) {
-                        for (auto i = 0ul; i < text.size(); ++x) {
-                            auto l = core::utf8::get_length(text[i]);
-                            if (x + static_cast<int>(l) + extra_space >= container.max_x()) {
+                if (style.overflow_wrap == css::OverflowWrap::BreakWord) {
+                    if (x - dx + sz > container.max_x()) {
+                        auto last_text_end = std::size_t{};
+                        auto last_x_start = x;
+                        auto w = 0;
+                        for (auto i = std::size_t{}; i < txt.size(); ++x) {
+                            auto l = core::utf8::get_length(txt[i]);
+                            max_x = std::max(max_x, x);
+                            if (x + static_cast<int>(l) > container.max_x()) {
+                                lines.push_back({
+                                    .line = txt.substr(last_text_end, i),
+                                    .bounds = { last_x_start, y, w, 1 }
+                                });
                                 ++y;
                                 x = container.min_x();
+                                last_x_start = x;
+                                last_text_end = i;
+                                w = 0;
+                                dx = 0;
+                                dy = 0;
 
                                 if (y >= container.max_y()) break;
-                                if (y + 1 >= container.max_y()) {
-                                    extra_space = required_space + padding_right;
-                                }
                             }
 
-                            assert(i + l <= text.size());
-
-                            device.write_text(text.substr(i, l), x, y, cell_style);
-
+                            assert(i + l <= txt.size());
                             i += l;
+                            ++w;
+                        }
+                        if (last_text_end != txt.size()) {
+                            lines.push_back({
+                                .line = txt.substr(last_text_end),
+                                .bounds = { last_x_start, y, w, 1 }
+                            });
                         }
                         rendered = true;
                     }
                 }
 
                 if (!rendered) {
-                    x = device.write_text(txt, x, y, cell_style).second;
+                    lines.push_back(LineBox{
+                        .line = txt,
+                        .bounds = { x, y, sz, 1 }
+                    });
+                    x += sz;
                 }
 
+                max_x = std::max(max_x, x);
                 start = pos;
             } while (start < text.size());
 
             box.height = y - start_y + 1;
-            start_offset = {
+            start_position = {
                 .x = x,
                 .y = y
             };
 
-            return { .container = box, .text_rendered = text.size() };
+            box.width = max_x - box.min_x();
+
+            auto size = static_cast<unsigned>(lines.size()) - line_start;
+            auto span = LineSpan{ line_start, size };
+            return { .container = box, .text_rendered = text.size(), .span = span };
         };
     };
 
-} // namespace termml::text
+} // namespace termml::layout
 
 #endif // AMT_TERMML_TEXT_HPP

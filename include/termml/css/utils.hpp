@@ -1,5 +1,5 @@
-#ifndef AMT_TERMML_UTILS_HPP
-#define AMT_TERMML_UTILS_HPP
+#ifndef AMT_TERMML_CSS_UTILS_HPP
+#define AMT_TERMML_CSS_UTILS_HPP
 
 #include <string_view>
 
@@ -206,4 +206,4 @@ namespace termml::utils {
     } // namespace char_set
 } // namespace termml::utils
 
-#endif // AMT_TERMML_UTILS_HPP
+#endif // AMT_TERMML_CSS_UTILS_HPP

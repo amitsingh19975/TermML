@@ -2,8 +2,8 @@
 #define AMT_TERMML_XML_NODE_HPP
 
 #include "lexer.hpp"
-#include "termml/core/string_utils.hpp"
-#include "termml/style.hpp"
+#include "../core/string_utils.hpp"
+#include "../css/style.hpp"
 #include <cctype>
 #include <memory>
 #include <type_traits>
@@ -60,7 +60,7 @@ namespace termml::xml {
         std::vector<TextContentNode> text_nodes{};
         std::vector<StyleNode> stylesNodes{};
         std::unordered_map<std::string_view, node_index_t> id_cache{};
-        std::vector<style::Style> styles{};
+        std::vector<css::Style> styles{};
 
         // unique pointer is used to stablize the string address.
         std::vector<std::unique_ptr<std::string>> computed_string{};
@@ -90,7 +90,7 @@ namespace termml::xml {
                 auto const& text = text_nodes[node.index];
                 if (text.normalized_text.empty()) return;
                 auto const& style = styles[text.style_index];
-                if (style.display == style::Display::Block) {
+                if (style.display == css::Display::Block) {
                     std::println("{:{}}<#block>{}</#block>", ' ', tab, text.normalized_text);
                 } else {
                     std::println("{:{}}{}", ' ', tab, text.normalized_text);
@@ -128,8 +128,8 @@ namespace termml::xml {
 
             resolve_css_inheritance();
             styles.push_back({
-                .width = { .f = 100, .unit = style::Unit::Percentage },
-                .height = { .f = 100, .unit = style::Unit::Percentage },
+                .width = { .f = 100, .unit = css::Unit::Percentage },
+                .height = { .f = 100, .unit = css::Unit::Percentage },
             });
             build_style_tree();
             collapse_whitespace();
@@ -182,7 +182,7 @@ namespace termml::xml {
                     for (auto [k, v]: tmp) child.attributes[k] = v;
                 }
 
-                for (auto k: style::CSSPropertyKey::inherited_properties) {
+                for (auto k: css::CSSPropertyKey::inherited_properties) {
                     if (child.attributes.contains(k)) continue;
                     if (auto it = el.attributes.find(k); it != child.attributes.end()) {
                         child.attributes[k] = it->second;
@@ -199,10 +199,10 @@ namespace termml::xml {
                 if (c.kind == NodeKind::TextContent) {
                     auto& ch = text_nodes[c.index];
                     ch.style_index = styles.size();
-                    auto style = style::Style{};
+                    auto style = css::Style{};
                     styles.push_back(style);
                 } else if (c.kind == NodeKind::Element) {
-                    auto style = style::Style{};
+                    auto style = css::Style{};
                     auto& ch = element_nodes[c.index];
                     ch.style_index = styles.size();
                     style.parse_proprties(ch.tag, ch.attributes, &styles[el.style_index]);
@@ -212,9 +212,9 @@ namespace termml::xml {
             }
         }
 
-        auto normalize_text(std::string_view text, style::Whitespace whitespace, bool& allocated) -> std::string_view {
+        auto normalize_text(std::string_view text, css::Whitespace whitespace, bool& allocated) -> std::string_view {
             if (text.empty()) return {};
-            if (whitespace == style::Whitespace::Pre || whitespace == style::Whitespace::PreWrap) {
+            if (whitespace == css::Whitespace::Pre || whitespace == css::Whitespace::PreWrap) {
                 return text;
             }
 
@@ -223,16 +223,16 @@ namespace termml::xml {
             start = std::min(start, text.size());
 
             std::size_t end = text.size();
-            if (whitespace == style::Whitespace::PreLine) {
+            if (whitespace == css::Whitespace::PreLine) {
                 end = std::min(std::min(text.find_last_not_of(" \t\r\f\v"), text.size()) + 1, text.size());
-            } else if (whitespace != style::Whitespace::Normal) {
+            } else if (whitespace != css::Whitespace::Normal) {
                 end = std::min(std::min(text.find_last_not_of(" \n\t\r\f\v"), text.size()) + 1, text.size());
             }
 
             auto need_normalization{false};
             for (auto i = start; i < end; ++i) {
                 auto c = text[i];
-                if ((c == '\n') && whitespace != style::Whitespace::PreLine) {
+                if ((c == '\n') && whitespace != css::Whitespace::PreLine) {
                     need_normalization = true;
                     break;
                 }
@@ -270,7 +270,7 @@ namespace termml::xml {
 
             for (auto i = start; i < end;) {
                 auto c = text[i];
-                if ((c == '\n') && whitespace == style::Whitespace::PreLine) {
+                if ((c == '\n') && whitespace == css::Whitespace::PreLine) {
                     tmp.push_back(text[i]);
                     ++i;
                     continue;
@@ -295,9 +295,11 @@ namespace termml::xml {
 
         auto collapse_whitespace(
             Node const& node = root,
-            bool inline_context = false,
-            bool last_char_was_whitespace = true
+            css::Display context = css::Display::Block,
+            bool last_char_was_whitespace = true,
+            bool has_right_padding = false
         ) -> bool {
+            using namespace css;
             auto const& el = element_nodes[node.index];
 
             for (auto i = 0ul; i < el.childern.size(); ++i) {
@@ -310,19 +312,22 @@ namespace termml::xml {
                     txt = normalize_text(txt, style.whitespace, allocated);
 
                     std::string_view pattern = " \n\t\r\f\v";
-                    if (style.whitespace == style::Whitespace::PreLine) {
+                    if (style.whitespace == css::Whitespace::PreLine) {
                         pattern = " \t\r\f\v";
                     }
 
-                    if (!inline_context) {
-                        style.display = style::Display::Block;
+                    if (!Style::is_inline_context(context)) {
+                        if (context == Display::Flex) style.item_type = ItemType::Flex;
+                        else if (context == Display::Grid) style.item_type = ItemType::Grid;
+                        style.display = Display::Block;
+
                         if (core::utils::trim(txt).empty()) {
                             if (allocated) text_node_computed_string.pop_back();
                             ch.normalized_text = {};
                             continue;
                         }
                     } else {
-                        style.display = style::Display::Inline;
+                        style.display = Display::Inline;
                     }
 
                     if (txt.empty()) continue;
@@ -332,10 +337,9 @@ namespace termml::xml {
                         txt = core::utils::ltrim(txt, pattern);
                     }
 
-
-                    if (!inline_context) {
+                    if (!Style::is_inline_context(context) || has_right_padding || context == Display::InlineBlock) {
                         ch.normalized_text = core::utils::trim(txt, pattern);
-                        last_char_was_whitespace = false;
+                        last_char_was_whitespace = has_right_padding;
                     } else {
                         ch.normalized_text = txt;
                         last_char_was_whitespace = has_trailing_space;
@@ -343,9 +347,9 @@ namespace termml::xml {
 
                 } else if (c.kind == NodeKind::Element) {
                     auto& ch = element_nodes[c.index];
-                    auto display = styles[ch.style_index].display;
-                    auto const is_inline = (display == style::Display::Inline || display == style::Display::InlineBlock);
-                    last_char_was_whitespace = collapse_whitespace(c, is_inline, last_char_was_whitespace);
+                    auto& style = styles[ch.style_index];
+                    last_char_was_whitespace |= style.has_start_whitespace();
+                    last_char_was_whitespace = collapse_whitespace(c, style.display, last_char_was_whitespace, style.has_end_whitespace());
                 }
             }
 
@@ -353,6 +357,7 @@ namespace termml::xml {
         }
 
         constexpr auto fix_text_style(Node const& node = root) noexcept -> void {
+            using namespace css;
             auto const& el = element_nodes[node.index];
             auto const& style = styles[el.style_index];
 
@@ -360,10 +365,6 @@ namespace termml::xml {
                 if (c.kind == NodeKind::TextContent) {
                     auto& ch = text_nodes[c.index];
                     auto& tmp_style = styles[ch.style_index];
-                    if (ch.normalized_text.empty()) {
-                        tmp_style.display = style::Display::Inline;
-                        continue;
-                    }
                     tmp_style.fg_color = style.fg_color;
                     tmp_style.bg_color = style.bg_color;
                     tmp_style.z_index = style.z_index;

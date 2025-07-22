@@ -1,15 +1,17 @@
 #ifndef AMT_TERMML_LAYOUT_HPP
 #define AMT_TERMML_LAYOUT_HPP
 
-#include "style.hpp"
-#include "core/bounding_box.hpp"
-#include "core/point.hpp"
-#include "core/terminal.hpp"
-#include "core/device.hpp"
-#include "core/string_utils.hpp"
-#include "utils.hpp"
+#include "../css/style.hpp"
+#include "../core/bounding_box.hpp"
+#include "../core/point.hpp"
+#include "../core/terminal.hpp"
+#include "../core/device.hpp"
+#include "../core/string_utils.hpp"
+#include "../css/utils.hpp"
 #include "text.hpp"
-#include "xml/node.hpp"
+#include "line_box.hpp"
+#include "../xml/node.hpp"
+#include <__ostream/print.h>
 #include <algorithm>
 #include <cctype>
 #include <limits>
@@ -25,33 +27,20 @@ namespace termml::layout {
         node_index_t node_index{std::numeric_limits<node_index_t>::max()};
         std::size_t style_index{std::numeric_limits<node_index_t>::max()};
         std::string_view text{};
+        LineSpan lines{};
         std::vector<node_index_t> children{};
         core::BoundingBox container{};
-        core::BoundingBox viewport{}; // if std::nullopt, bounds are not resolved.
-        int content_offset_x{};
-        int content_offset_y{};
-        bool start_from_newline{true};
-        bool trim_end_whitespace{false};
+
+        bool scrollable_x{false};
+        bool scrollable_y{false};
 
         core::Terminal canvas{};
-
-        constexpr auto is_scrollable_x() const noexcept -> bool {
-            return viewport.width < container.width;
-        }
-
-        constexpr auto is_scrollable_y() const noexcept -> bool {
-            return viewport.height < container.height;
-        }
-
-        constexpr auto shift_y(int offset) noexcept -> void {
-            container.y += offset;
-            viewport.y += offset;
-        }
     };
 
     struct LayoutContext {
         core::BoundingBox viewport;
         std::vector<LayoutNode> nodes;
+        std::vector<LineBox> lines;
 
         constexpr LayoutContext(core::BoundingBox vp) noexcept
             : viewport(vp)
@@ -66,24 +55,28 @@ namespace termml::layout {
         auto compute(xml::Context* context) -> void {
             context->resolve_css();
             nodes.clear();
+            lines.clear();
             auto layout = LayoutNode {
                 .tag = {},
                 .node_index = 0,
-                .style_index = 0,
-                .viewport = viewport
+                .style_index = 0
             };
 
             nodes.push_back(std::move(layout));
             initialize_nodes(context, { .index = 0, .kind = xml::NodeKind::Element }, 0);
             resolve_style(context);
             resolve_cyclic_width(context, 0, viewport.width);
-            resolve_cyclic_height(context, 0, viewport.width, {});
-            compute_layout(context, viewport);
+            resolve_cyclic_height(context, 0, {
+                .height = viewport.height,
+                .content = viewport,
+                .start_position = { viewport.min_x(), viewport.min_y() }
+            });
+            // compute_layout(context, viewport);
         }
 
         template <core::detail::IsScreen S>
         auto render(core::Device<S>& dev, xml::Context const* context, node_index_t node = 0) -> void {
-            render_node(dev, context, node);
+            render_node(dev, context, node, viewport);
         }
 
         auto dump(xml::Context const* context, node_index_t index = 0, unsigned level = 0) const -> void {
@@ -94,7 +87,8 @@ namespace termml::layout {
                 std::println("{:{}}   |- Text: '{}'", ' ', tab, l.text);
             }
 
-            std::println("{:{}}   |- Viewport: {}, Container: {} | Offset: ({}, {}) | {}", ' ', tab, l.viewport, l.container, l.content_offset_x, l.content_offset_y, l.start_from_newline);
+            std::println("{:{}}   |- Container: {}", ' ', tab, l.container);
+            std::println("{:{}}   |- Lines: {}", ' ', tab, std::span(lines.data() + l.lines.start, l.lines.size));
             std::println("{:{}}   |- Style: [{}]", ' ', tab, context->styles[l.style_index]);
 
             for (auto n: l.children) {
@@ -143,48 +137,48 @@ namespace termml::layout {
         }
 
         auto resolve_style(xml::Context* context, node_index_t node = 0) -> void {
-            auto const& layout = nodes[node];
+            auto& layout = nodes[node];
             auto& style = context->styles[layout.style_index];
 
             if (node == 0) {
-                style.width = style::Number {
+                style.width = css::Number {
                     .i = static_cast<int>(viewport.width),
-                    .unit = style::Unit::Cell
+                    .unit = css::Unit::Cell
                 };
 
-                style.height = style::Number {
+                style.height = css::Number {
                     .i = static_cast<int>(viewport.height),
-                    .unit = style::Unit::Cell
+                    .unit = css::Unit::Cell
                 };
 
                 style.inset = {
-                    .top = style::Number::from_cell(static_cast<int>(viewport.min_y())),
-                    .right = style::Number::from_cell(static_cast<int>(viewport.max_x())),
-                    .bottom = style::Number::from_cell(static_cast<int>(viewport.max_y())),
-                    .left = style::Number::from_cell(static_cast<int>(viewport.min_x())),
+                    .top = css::Number::from_cell(static_cast<int>(viewport.min_y())),
+                    .right = css::Number::from_cell(static_cast<int>(viewport.max_x())),
+                    .bottom = css::Number::from_cell(static_cast<int>(viewport.max_y())),
+                    .left = css::Number::from_cell(static_cast<int>(viewport.min_x())),
                 };
             }
 
-            if (style.width.is_absolute()) {
-                for (auto l: layout.children) {
-                    auto& ts = context->styles[nodes[l].style_index];
+            for (auto l: layout.children) {
+                auto& ts = context->styles[nodes[l].style_index];
+                if (style.width.is_absolute()) {
                     resolve_style_width_releated_props(ts, style.width.i);
-                    ts.margin = ts.margin.resolve(style.width.i);
-                    resolve_style(context, l);
                 }
+                ts.margin = ts.margin.resolve(style.width.i);
+                resolve_style(context, l);
             }
 
-            if (style.height.is_absolute()) {
-                for (auto l: layout.children) {
-                    auto& ts = context->styles[nodes[l].style_index];
+            for (auto l: layout.children) {
+                auto& ts = context->styles[nodes[l].style_index];
+                if (style.height.is_absolute()) {
                     resolve_style_height_releated_props(ts, style.height.i);
-                    resolve_style(context, l);
                 }
+                resolve_style(context, l);
             }
         }
 
         static constexpr auto resolve_style_width_releated_props(
-            style::Style& style,
+            css::Style& style,
             int parent_width,
             bool resolve_auto_fit = false
         ) noexcept -> void {
@@ -195,8 +189,8 @@ namespace termml::layout {
                 style.min_width = style.min_width.resolve_all(parent_width);
                 style.max_width = style.max_width.resolve_all(parent_width);
                 style.width.i = std::max(style.width.i, style.min_width.i);
-                if (style.overflow_x == style::Overflow::Clip) {
-                    style.width.i = std::min(style.width.i, style.max_width.i);
+                if (style.overflow_x == css::Overflow::Clip) {
+                    style.width.i = std::min({ style.width.i, style.max_width.i, parent_width });
                 }
             } else {
                 style.width = style.width.resolve_percentage(parent_width);
@@ -211,55 +205,59 @@ namespace termml::layout {
         constexpr auto resolve_cyclic_width(
             xml::Context* context,
             node_index_t node,
-            int max_parent_width,
-            int right_margin = 0,
-            bool is_next_element_inline = false
+            int max_parent_width
         ) noexcept -> int /*container width*/ {
             auto& el = nodes[node];
             auto& style = context->styles[el.style_index];
             auto content_width = 0;
 
             if (el.tag.empty() && node != 0) {
-                if (style.whitespace != style::Whitespace::Normal) {
-                    is_next_element_inline = false;
-                }
-
-                el.trim_end_whitespace = !is_next_element_inline;
-                auto text = text::TextRenderer{
-                    .text = el.trim_end_whitespace == false ? el.text : core::utils::rtrim(el.text),
+                auto text = TextLayouter{
+                    .text = el.text,
                 };
-                content_width = std::min(text.measure_width(), max_parent_width);
+                content_width = text.measure_width();
+                if (style.whitespace != css::Whitespace::NoWrap) {
+                    content_width = std::min(content_width, max_parent_width);
+                }
             }
 
+            auto last_inline_element = false;
             for (auto i = 0ul; i < el.children.size(); ++i) {
                 auto l = el.children[i];
                 auto const& c = nodes[l];
                 auto& cs = context->styles[c.style_index];
                 cs.margin = cs.margin.resolve(max_parent_width);
-
-                if (i + 1 < el.children.size()) {
-                    auto const& nc = nodes[el.children[i + 1]];
-                    auto const& ns = context->styles[nc.style_index];
-                    is_next_element_inline = (ns.display == style::Display::Inline || ns.display == style::Display::InlineBlock) && (cs.display == style::Display::Inline || cs.display == style::Display::InlineBlock);
-                }
+                auto is_inline = cs.is_inline_context();
+                auto margin = cs.margin.horizontal();
 
                 if (cs.width.is_absolute()) {
-                    content_width = std::max(content_width, cs.width.i);
-                    resolve_cyclic_width(context, l, cs.width.i, right_margin, is_next_element_inline);
+                    auto w = cs.width.i; 
+                    if (is_inline == last_inline_element && is_inline == true) {
+                        w += content_width;
+                    }
+                    content_width = std::max(content_width, w);
+                    resolve_cyclic_width(context, l, cs.width.i);
                 } else if (cs.width.is_fit()) {
                     auto parent_width = style.width.is_absolute() ? style.width.i : max_parent_width;
+                    if (is_inline == last_inline_element && is_inline == true) {
+                        parent_width += content_width;
+                    }
                     content_width = std::max(
                         content_width,
-                        resolve_cyclic_width(context, l, parent_width, right_margin, is_next_element_inline)
+                        resolve_cyclic_width(context, l, parent_width)
                     );
                 } else if (cs.width.is_precentage()) {
-                    // cannot resolve this so we set this to 0
-                    resolve_style_width_releated_props(cs, 0, true);
+                    resolve_style_width_releated_props(cs, max_parent_width, true);
+                    content_width = std::max(content_width, cs.width.i);
                 }
 
-                // TODO: support negative margins
-                content_width += std::max(std::abs(right_margin - cs.margin.left.as_cell()), 0);
-                right_margin = cs.margin.right.as_cell();
+                last_inline_element = is_inline;
+                content_width += margin;
+            }
+
+            if (style.width.is_absolute()) {
+                el.container.width = style.width.i;
+                return el.container.width;
             }
 
             auto& padding = style.padding;
@@ -284,13 +282,14 @@ namespace termml::layout {
                 actual_width = static_cast<int>(float(content_width) / per);
             }
 
-            resolve_style_width_releated_props(style, actual_width, true);
+            el.container.width = actual_width;
+            resolve_style_width_releated_props(style, el.container.width, true);
 
             return actual_width;
         }
 
         static constexpr auto resolve_style_height_releated_props(
-            style::Style& style,
+            css::Style& style,
             int parent_height,
             bool resolve_auto_fit = false
         ) noexcept -> void {
@@ -299,8 +298,8 @@ namespace termml::layout {
                 style.max_height = style.max_height.resolve_all(parent_height);
                 style.height = style.height.resolve_all(parent_height);
                 style.height.i = std::max(style.height.i, style.min_height.i);
-                if (style.overflow_y == style::Overflow::Clip) {
-                    style.height.i = std::min(style.height.i, style.max_height.i);
+                if (style.overflow_y == css::Overflow::Clip) {
+                    style.height.i = std::min({ style.height.i, style.max_height.i, parent_height });
                 }
             } else {
                 style.min_height = style.min_height.resolve_percentage(parent_height);
@@ -315,10 +314,16 @@ namespace termml::layout {
         ) const noexcept -> std::pair<std::size_t /*size*/, bool /*whitespace found*/>{
             auto const& el = nodes[node];
             auto const& s = context->styles[el.style_index];
-            if (s.display != style::Display::Inline) return { 0, true };
+            if (s.has_start_whitespace()) return { 0, true };
+            if (!s.has_inline_flow()) return { 0, true };
+
+            if (s.display == css::Display::InlineBlock) return {
+                s.width.i,
+                true
+            };
 
             if (el.tag.empty()) {
-                auto pos = text::detail::find_word(el.text);
+                auto pos = detail::find_word(el.text);
                 if (pos >= el.text.size()) return { el.text.size(), false };
                 return { pos, true };
             }
@@ -352,204 +357,259 @@ namespace termml::layout {
 
         struct HeightResult {
             int height{};
-            std::size_t sibling_word_size{};
-            core::Point start_offset{};
-            std::pair<int, int> v_padding{};
-            std::pair<int, int> v_margin{};
+            core::BoundingBox content{};
+            core::Point start_position{};
+            std::size_t previous_line{};
         };
 
         constexpr auto resolve_cyclic_height(
             xml::Context* context,
             node_index_t node,
-            int max_parent_height,
             HeightResult param
-        ) noexcept -> HeightResult {
+        ) -> HeightResult {
             auto& el = nodes[node];
-            auto& style = context->styles[el.style_index];
-            auto content_height = 0;
-
-            auto last_y_pos = param.start_offset.y;
-            auto last_line_margin = param.v_margin;
-
-            if (style.display != style::Display::Inline) {
-                ++param.start_offset.y;
-                param.start_offset.x = 0;
-                content_height += 1;
-            }
-
-            if (el.tag.empty() && node != 0) {
-                auto text = text::TextRenderer{
+            auto& p_style = context->styles[el.style_index];
+            if (!el.text.empty()) {
+                auto t = TextLayouter {
                     .text = el.text,
-                    .start_offset = param.start_offset,
-                    .next_word_length = param.sibling_word_size
+                    .container = {
+                        .x = param.content.x,
+                        .y = param.content.y,
+                        .width = param.content.width,
+                        .height = core::BoundingBox::inf().height - param.content.y // avoid overflow
+                    },
+                    .start_position = param.start_position,
                 };
-                auto tmp = text.measure_height(style);
-                content_height = std::min(std::max(tmp, content_height), max_parent_height);
-                param.start_offset = text.start_offset;
+
+                auto result = t(lines, param.previous_line, p_style);
+                el.lines = result.span;
+                return {
+                    .height = result.container.height,
+                    .content = param.content,
+                    .start_position = t.start_position
+                };
             }
 
-            auto top_margin = 0;
-            auto previous_block_end_margin = 0;
+            auto v_margin = std::make_pair(0 /*top*/, 0 /*bottom*/);
+            auto v_padding = std::make_pair(0 /*top*/, 0 /*bottom*/);
+            auto is_previous_inline = false;
 
-            for (auto i = 0ul; i < el.children.size(); ++i) {
+            param.height = 0;
+            auto tmp_param = param;
+
+            auto line_start = std::max<std::size_t>(lines.size(), 1) - 1;
+            auto margin_line_start = line_start;
+            auto margin_node_start = std::size_t{};
+            for (auto i = std::size_t{}; i < el.children.size(); ++i) {
                 auto l = el.children[i];
-                auto& c = nodes[l];
-                auto& cs = context->styles[c.style_index];
-                if (cs.display == style::Display::Block) {
-                    c.start_from_newline = true;
-                }
-                auto sib_space = c.start_from_newline ? 0 : get_inline_sibling_word_size(context, node, i);
-                param.sibling_word_size = sib_space;
-                auto [pt, pb] = param.v_padding;
+                auto& ch = nodes[l];
+                auto& style = context->styles[ch.style_index];
 
-                auto tmp = HeightResult();
+                auto top_margin = style.margin.top.as_cell();
+                auto bottom_margin = style.margin.bottom.as_cell();
+                auto top_padding = style.padding.top.as_cell();
+                auto bottom_padding = style.padding.bottom.as_cell();
 
-                param.start_offset.x += std::abs(previous_block_end_margin - cs.margin.left.as_cell());
-
-                if (cs.height.is_absolute()) {
-                    content_height = std::max(content_height, cs.height.i);
-                    tmp = resolve_cyclic_height(
-                        context,
-                        l,
-                        cs.height.i,
-                        param
-                    );
-                    tmp.height = cs.height.i;
-                } else if (cs.height.is_fit()) {
-                    auto parent_width = style.height.is_absolute() ? style.height.i : max_parent_height;
-                    tmp = resolve_cyclic_height(context, l, parent_width, param);
-                } else if (cs.height.is_precentage()) {
-                    // cannot resolve this so we set this to 0
-                    resolve_style_height_releated_props(cs, 0, true);
-                    tmp = param;
+                if (style.display == css::Display::Inline) {
+                    top_margin = 0;
+                    bottom_margin = 0;
+                    top_padding = 0;
+                    bottom_padding = 0;
                 }
 
-                c.start_from_newline |= (tmp.start_offset.y != param.start_offset.y);
+                if (style.can_collapse_margin()) {
+                    if (v_margin.first < 0 && top_margin < 0) {
+                        v_margin.first = std::min(v_margin.first, top_margin);
+                    } else if (v_margin.first > 0 && top_margin > 0) {
+                        v_margin.first = std::max(v_margin.first, top_margin);
+                    } else {
+                        v_margin.first += top_margin;
+                    }
 
-                if (cs.display == style::Display::Block) {
-                    c.start_from_newline = true;
-                }
+                    if (v_margin.second < 0 && bottom_margin < 0) {
+                        v_margin.second = std::min(v_margin.second, bottom_margin);
+                    } else if (v_margin.second > 0 && bottom_margin > 0) {
+                        v_margin.second = std::max(v_margin.second, bottom_margin);
+                    } else {
+                        v_margin.second += bottom_margin;
+                    }
 
-                if (c.children.size() == 1) {
-                    auto const& t = nodes[c.children[0]];
-                    c.start_from_newline |= t.start_from_newline;
-                }
-
-                if (last_y_pos == tmp.start_offset.y) {
-                    param.v_padding = {
-                        std::max(tmp.v_padding.first, pt),
-                        std::max(tmp.v_padding.second, pb),
-                    };
-                    param.v_margin = {
-                        std::max(tmp.v_padding.first, param.v_margin.first),
-                        std::max(tmp.v_padding.second, param.v_margin.second),
-                    };
                 } else {
-                    tmp.height += param.v_padding.second;
-                    tmp.height += std::abs(param.v_margin.first - top_margin);
-
-                    top_margin = param.v_margin.second;
-                    param.v_padding = {};
-                    param.v_margin = {};
+                    v_margin = {
+                        v_margin.first + style.margin.top.as_cell(),
+                        v_margin.second + style.margin.bottom.as_cell(),
+                    };
                 }
-                last_y_pos = tmp.start_offset.y;
-                content_height = content_height + tmp.height;
-                previous_block_end_margin = cs.margin.right.as_cell();
+                v_padding = {
+                    std::max(v_padding.first, top_padding),
+                    std::max(v_padding.second, bottom_padding),
+                };
+
+                auto tmp = tmp_param;
+                auto offset_x = style.padding.left.as_cell() + style.border_left.border_width() + style.margin.left.as_cell();
+                auto offset_y = top_padding + style.border_top.border_width();
+                tmp.start_position = {
+                    .x = tmp_param.start_position.x + offset_x,
+                    .y = tmp_param.start_position.y + offset_y
+                };
+
+                auto is_inline = style.has_inline_flow();
+
+                if (!is_inline) {
+                    tmp.content.x = tmp.start_position.x;
+                    tmp.content.y = tmp_param.start_position.y + tmp_param.height;
+                    auto x_shift = tmp.content.x - ch.container.x;
+                    ch.container.x = tmp.content.x;
+                    ch.container.y = tmp.content.y;
+                    ch.container.width -= x_shift;
+                    tmp.content.x += offset_x;
+                    tmp.content.y += offset_y;
+
+                    auto width = std::max(tmp_param.content.width - (style.padding.horizontal() + style.border_right.border_width() + style.border_left.border_width() + style.margin.horizontal()), 0);
+
+                    tmp.content = core::BoundingBox::from(
+                        tmp.content.x,
+                        tmp_param.content.x + width,
+                        tmp.content.y,
+                        core::BoundingBox::inf().y - tmp.content.y
+                    );
+
+                    tmp.height = tmp_param.height = 0;
+                    tmp.start_position = { tmp.content.x, tmp.content.y };
+                } else {
+                    ch.container.x = tmp.content.x;
+                    ch.container.y = tmp.content.y;
+                }
+
+                tmp.content.width = std::min(tmp.content.width, ch.container.width);
+
+                // if (style.whitespace != css::Whitespace::NoWrap) {
+                //     ch.container.width = tmp.content.width + offset_x;
+                // }
+
+                if (is_previous_inline && style.is_inline_context()) {
+                    tmp.previous_line = std::max(lines.size(), std::size_t{1}) - 1;
+                }
+
+                tmp = resolve_cyclic_height(context, l, tmp);
+                if (style.height.is_fit()) {
+                    ch.container.height = tmp.height;
+                } else if (style.height.is_absolute()) {
+                    ch.container.height = style.height.i;
+                } else {
+                    ch.container.height = 0;
+                }
+                ch.container.height += style.padding.vertical() + style.border_bottom.border_width() + style.border_top.border_width();
+
+                auto moved_to_new_line = (tmp.start_position.y != tmp_param.start_position.y);
+
+                auto height = tmp_param.height;
+                tmp_param = tmp;
+
+                if (moved_to_new_line || !is_inline) {
+                    height += ch.container.height;
+
+                    for (auto j = margin_line_start; j < lines.size(); ++j) {
+                        lines[j].bounds.y += v_margin.first;
+                    }
+                    for (auto j = margin_node_start; j < i; ++j) {
+                        nodes[el.children[j]].container.y += v_margin.first;
+                    }
+
+                    v_margin = { v_margin.second, 0 };
+                    v_padding = {};
+                    height += v_margin.first;
+                    margin_line_start = lines.size();
+                    margin_node_start = i + 1;
+                }
+                if (is_previous_inline && is_inline) {
+                    height = std::max(height - 1, 0);
+                }
+
+                if (!moved_to_new_line && !is_inline) {
+                    height = std::max(height - 1, 0);
+                }
+
+                tmp_param.height = height;
+
+                if (!is_inline) {
+                    param.height += tmp_param.height;
+                    param.start_position.y += tmp_param.height;
+                    param.start_position.x = param.content.x;
+
+                    tmp_param = param;
+                    tmp_param.height = 0;
+                } else {
+                    // tmp_param.start_offset.x += 1;
+                }
+
+                is_previous_inline = is_inline;
+                resolve_style_height_releated_props(style, ch.container.height, true);
             }
 
-            auto& padding = style.padding;
-            auto& border_top = style.border_top;
-            auto& border_bottom = style.border_bottom;
+            for (auto j = margin_line_start; j < lines.size(); ++j) {
+                lines[j].bounds.y += v_margin.first;
+            }
+            for (auto j = margin_node_start; j < el.children.size(); ++j) {
+                nodes[el.children[j]].container.y += v_margin.first;
+            }
 
-            content_height += border_top.border_width();
-            content_height += border_bottom.border_width();
+            param.height += tmp_param.height;
+            if (p_style.has_inline_flow()) {
+                param.start_position.x = tmp_param.start_position.x;
+                param.start_position.y = tmp_param.start_position.y;
+            } else {
+                param.start_position.x = param.content.x;
+                param.start_position.y += param.height;
+            }
 
-            auto actual_height = content_height + padding.vertical() + top_margin;
-
-            resolve_style_height_releated_props(style, actual_height, true);
-
-            param.height = actual_height;
+            auto line_end = lines.size();
+            el.lines = {
+                .start = static_cast<unsigned>(line_start),
+                .size = static_cast<unsigned>(line_end - line_start)
+            };
+            if (node == 0) {
+                el.container = param.content;
+            }
             return param;
         }
 
-        auto compute_layout(
-            xml::Context const* context,
-            core::BoundingBox container,
-            node_index_t node = 0,
-            int level = 0
-        ) -> void {
-            auto& el = nodes[node];
-            {
-                auto const& style = context->styles[el.style_index];
-                el.container = {
-                    container.x,
-                    container.y,
-                    style.width.as_cell(),
-                    style.height.as_cell()
-                };
-            }
-
-            el.viewport.x = std::max(el.container.min_x(), container.min_x());
-            el.viewport.width = std::min(el.container.max_x(), container.max_x()) - el.container.min_x();
-
-            el.viewport.y = std::max(el.container.min_y(), container.min_y());
-            el.viewport.height = std::min(el.container.max_y(), container.max_y()) - el.container.min_y();
-
-            auto tmp_vp = el.container;
-
-            auto v_margin = std::make_pair(0 /*top*/, 0 /*bottom*/);
-
-            auto previous_node_start = node_index_t{};
-
-            auto top_margin = 0;
-            auto previous_end_margin = 0;
-
-            for (auto j = 0ul; j < el.children.size(); ++j) {
-                auto c = el.children[j];
-                auto& ch = nodes[c];
-                auto const& style = context->styles[ch.style_index];
-
-                v_margin = {
-                    std::max(v_margin.first, style.margin.top.as_cell()),
-                    std::max(v_margin.second, style.margin.bottom.as_cell())
-                };
-
-                auto vp = tmp_vp;
-                vp.width = std::min(style.width.as_cell(), tmp_vp.width);
-                vp.height = std::min(style.height.as_cell(), tmp_vp.height);
-
-                ch.content_offset_x = style.padding.left.as_cell() + std::abs(previous_end_margin - style.margin.left.as_cell()) + style.border_left.border_width();
-                ch.content_offset_y = style.padding.top.as_cell() + style.border_top.border_width();
-                previous_end_margin = style.margin.right.as_cell();
-
-                ch.content_offset_x += std::max(el.content_offset_x - el.container.x, 0);
-                ch.content_offset_y += std::max(el.content_offset_y - el.container.y, 0);
-
-                compute_layout(context, vp, c, level + 1);
-
-                if (ch.start_from_newline) {
-                    tmp_vp.x = el.container.min_x();
-                    tmp_vp.y += vp.height;
-
-                    auto margin = std::abs(v_margin.first - top_margin);
-                    for (auto i = previous_node_start; i < c; ++i) {
-                        auto& tmp = nodes[i];
-                        tmp.content_offset_y += margin;
-                    }
-                    previous_node_start = c;
-                    top_margin = v_margin.second;
-                    v_margin = {};
-                } else {
-                    tmp_vp.x = vp.max_x();
-                }
-            }
-        }
+        // auto compute_layout(
+        //     xml::Context const* context,
+        //     core::BoundingBox container,
+        //     node_index_t node = 0
+        // ) -> void {
+        //     auto& el = nodes[node];
+        //     auto x = container.x;
+        //     auto y = container.y;
+        //     el.scrollable_x = (el.container.max_x() > container.max_x() || el.container.min_x() < container.min_x());
+        //     el.scrollable_y = (el.container.max_y() > container.max_y() || el.container.min_y() < container.min_y());
+        //     for (auto c: el.children) {
+        //         auto& ch = nodes[c];
+        //         auto const& style = context->styles[ch.style_index];
+        //         ch.container.x = x;
+        //         ch.container.y = y;
+        //
+        //         compute_layout(context, ch.container, c);
+        //
+        //         if (style.has_inline_flow()) {
+        //             x += ch.container.width;
+        //         } else {
+        //             x = el.container.x;
+        //             y += ch.container.height;
+        //         }
+        //     }
+        //
+        //     el.container.x = container.x;
+        //     el.container.y = container.y;
+        // }
 
         template <core::detail::IsScreen S>
         auto render_node(
             core::Device<S>& dev,
             xml::Context const* context,
             node_index_t node,
+            core::BoundingBox container,
             bool ignore_scroll = false,
             bool is_next_element_inline = false
         ) -> void {
@@ -557,22 +617,18 @@ namespace termml::layout {
             auto const& style = context->styles[el.style_index];
 
             if (el.tag.empty() && node != 0) {
-                text::TextRenderer t {
-                    .text = el.trim_end_whitespace == false ? el.text : core::utils::rtrim(el.text),
-                    .container = el.container,
-                    .start_offset = {
-                        el.content_offset_x + el.container.x,
-                        el.content_offset_y + el.container.y
-                    },
-                };
-                t.render(dev, style);
+                for (auto i = 0ul; i < el.lines.size; ++i) {
+                    auto const& line = lines[el.lines.start + i];
+                    // std::println("HERE: {} | {}", line.line, line.bounds);
+                    dev.write_text(line.line, line.bounds.x, line.bounds.y, core::PixelStyle::from_style(style));
+                }
                 return;
             }
 
-            if (!ignore_scroll && (el.is_scrollable_x() || el.is_scrollable_y())) {
+            if (!ignore_scroll && (el.scrollable_x || el.scrollable_y)) {
                 auto d = core::Device(&el.canvas);
-                render_node(d, context, node, true);
-                core::ViewportClipGuard clip(dev, el.viewport);
+                render_node(d, context, node, el.container, true);
+                core::ViewportClipGuard clip(dev, container);
                 for (auto r = 0; r < el.canvas.rows(); ++r) {
                     for (auto c = 0; c < el.canvas.cols(); ++c) {
                         auto const& cell = el.canvas(static_cast<unsigned>(r), static_cast<unsigned>(c));
@@ -582,17 +638,16 @@ namespace termml::layout {
                     }
                 }
             } else {
+                // core::ViewportClipGuard g(dev, container);
                 for (auto i = 0ul; i < el.children.size(); ++i) {
                     auto c = el.children[i];
                     auto const& ch = nodes[c];
 
                     if (ch.tag.empty()) {
                         // std::println("HERE: \t\t\t\t\t\t\t\t{} | '{}' | {}, {}", ch.viewport, ch.text, ch.content_offset_x, ch.content_offset_y);
-                        render_node(dev, context, c, false, is_next_element_inline);
+                        render_node(dev, context, c, container, false, is_next_element_inline);
                     } else {
-                        // std::println("{:{}}HERE[{}]: {} | {}", ' ', 60, el.tag, el.text, ch.viewport);
-                        core::ViewportClipGuard g(dev, ch.viewport);
-                        render_node(dev, context, c, false, is_next_element_inline);
+                        render_node(dev, context, c, ch.container, false, is_next_element_inline);
                     }
                 }
             }

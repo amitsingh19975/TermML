@@ -1,7 +1,7 @@
 #ifndef AMT_THERMML_CORE_DEVICE_HPP
 #define AMT_THERMML_CORE_DEVICE_HPP
 
-#include "../style.hpp"
+#include "../css/style.hpp"
 #include "point.hpp"
 #include "commands.hpp"
 #include "bounding_box.hpp"
@@ -15,8 +15,8 @@
 namespace termml::core {
 
     struct PixelStyle {
-        style::Color fg_color{style::Color::Default};
-        style::Color bg_color{style::Color::Default};
+        css::Color fg_color{css::Color::Default};
+        css::Color bg_color{css::Color::Default};
         bool bold{false};
         bool dim{false};
         bool italic{false};
@@ -24,7 +24,7 @@ namespace termml::core {
         bool strike{false};
         int z_index{};
 
-        static constexpr auto from_style(style::Style const& style) noexcept -> PixelStyle {
+        static constexpr auto from_style(css::Style const& style) noexcept -> PixelStyle {
             return {
                 .fg_color = style.fg_color,
                 .bg_color = style.bg_color,

@@ -1,8 +1,8 @@
-#ifndef AMT_TERMML_STYLE_HPP
-#define AMT_TERMML_STYLE_HPP
+#ifndef AMT_TERMML_CSS_STYLE_HPP
+#define AMT_TERMML_CSS_STYLE_HPP
 
-#include "core/color_utils.hpp"
-#include "core/string_utils.hpp"
+#include "../core/color_utils.hpp"
+#include "../core/string_utils.hpp"
 #include "utils.hpp"
 #include <array>
 #include <charconv>
@@ -10,7 +10,7 @@
 #include <span>
 #include <unordered_map>
 
-namespace termml::style {
+namespace termml::css {
     struct CSSPropertyKey {
         static constexpr std::string_view color = "color";
         static constexpr std::string_view background_color = "background-color";
@@ -531,14 +531,14 @@ namespace termml::style {
             }
 
             if (width.as_cell() == 2) {
-                if (style == style::BorderStyle::Dotted) {
+                if (style == BorderStyle::Dotted) {
                     horizontal = utils::char_set::box::dotted_bold.horizonal;
                     vertical = utils::char_set::box::dotted_bold.vertical;
                 } else {
                     horizontal = utils::char_set::box::rounded_bold.horizonal;
                     vertical = utils::char_set::box::rounded_bold.vertical;
                 }
-                if (type == style::BorderType::Rounded) {
+                if (type == BorderType::Rounded) {
                     tl = utils::char_set::box::rounded_bold.top_left;
                     tr = utils::char_set::box::rounded_bold.top_right;
                     br = utils::char_set::box::rounded_bold.bottom_right;
@@ -625,15 +625,9 @@ namespace termml::style {
         return def;
     }
 
-    enum class Display {
-        Block,
-        InlineBlock,
-        Inline,
-        Flex
-    };
-
     enum class Whitespace {
         Normal, // All the whitespace characters are collapsed to ' '
+        NoWrap,
         Pre, // Everything is preserved
         PreWrap, // Everything is preversed with text wrapping
         PreLine, // Newline is preserved but other whitespace charactors are collapsed.
@@ -652,6 +646,20 @@ namespace termml::style {
         bool strike{};
     };
 
+    enum class Display {
+        Block,
+        InlineBlock,
+        Inline,
+        Flex,
+        Grid,
+    };
+
+    enum class ItemType {
+        None,
+        Flex,
+        Grid
+    };
+
     struct Style {
         Number min_width{ Number::min() };
         Number max_width{ Number::max() };
@@ -663,6 +671,7 @@ namespace termml::style {
         Number height { Number::fit() };
 
         Display display{Display::Block};
+        ItemType item_type{ItemType::None};
 
         Border border_top{};
         Border border_right{};
@@ -698,6 +707,27 @@ namespace termml::style {
             std::unordered_map<std::string_view, std::string_view> const& props,
             Style const* parent = nullptr
         ) noexcept -> void {
+
+            {
+                auto d = core::utils::trim(get_property(props, CSSPropertyKey::display));
+                if (d == "block") display = Display::Block;
+                else if (d == "inline") display = Display::Inline;
+                else if (d == "inline-block") display = Display::InlineBlock;
+                else if (d == "flex") display = Display::Flex;
+                else {
+                    if (tag == "text" || tag == "span" || tag == "em") display = Display::Inline;
+                    else if (tag == "b" || tag == "strong" || tag == "i") display = Display::Inline;
+                }
+
+                if (parent) {
+                    switch (parent->display) {
+                    case Display::Flex: item_type = ItemType::Flex; break;
+                    case Display::Grid: item_type = ItemType::Grid; break;
+                    default: item_type = ItemType::None;
+                    }
+                }
+            }
+
             fg_color = Color::parse(
                 get_property(props, CSSPropertyKey::color),
                 parent ? parent->fg_color : Color::Default
@@ -842,6 +872,10 @@ namespace termml::style {
             auto tw = get_property(props, CSSPropertyKey::width);
             if (!tw.empty()) {
                 width = Number::parse(tw);
+            } else {
+                if (display == Display::Block) {
+                    width = { .f = 100, .unit = Unit::Percentage };
+                }
             }
 
             auto th = get_property(props, CSSPropertyKey::height);
@@ -895,28 +929,12 @@ namespace termml::style {
                     overflow_y = parse_overflow(to_y, overflow_y);
                 }
             }
-
-            {
-                auto d = core::utils::trim(get_property(props, CSSPropertyKey::display));
-                if (d == "block") display = Display::Block;
-                else if (d == "inline") display = Display::Inline;
-                else if (d == "inline-block") display = Display::InlineBlock;
-                else if (d == "flex") display = Display::Flex;
-                else {
-                    if (tag == "text" || tag == "span" || tag == "em") display = Display::Inline;
-                    else if (tag == "b" || tag == "strong" || tag == "i") display = Display::Inline;
-                }
-
-                if (display == Display::Block) {
-                    width = { .f = 100, .unit = Unit::Percentage };
-                }
-            }
-
             // white-space
             {
                 auto ws = core::utils::trim(get_property(props, CSSPropertyKey::whitespace));
 
                 if (ws == "normal") whitespace = Whitespace::Normal;
+                else if (ws == "nowrap") whitespace = Whitespace::NoWrap;
                 else if (ws == "pre") whitespace = Whitespace::Pre;
                 else if (ws == "pre-line") whitespace = Whitespace::PreLine;
                 else if (ws == "pre-wrap") whitespace = Whitespace::PreWrap;
@@ -926,6 +944,17 @@ namespace termml::style {
             {
                 text_style.bold = (tag == "b");
                 text_style.italic = (tag == "i");
+            }
+
+            if (display == Display::Inline) {
+                width = Number::fit();
+                height = Number::fit();
+                min_width = Number::min();
+                min_height = Number::min();
+                max_width = Number::max();
+                max_height = Number::max();
+                margin.top = Number::min();
+                margin.bottom = Number::min();
             }
         }
 
@@ -937,6 +966,56 @@ namespace termml::style {
                 0,
                 w - (b + p)
             );
+        }
+
+        static constexpr auto has_inline_flow(Display d) noexcept -> bool {
+            switch (d) {
+            case Display::InlineBlock: return true;
+            case Display::Inline: return true;
+            case Display::Flex: return false; // TODO: add axis properties
+            default: return false;
+            }
+        }
+        constexpr auto has_inline_flow() const noexcept -> bool { return has_inline_flow(display); }
+
+        static constexpr auto is_inline_context(Display d) noexcept -> bool {
+            switch (d) {
+            case Display::InlineBlock: return true;
+            case Display::Inline: return true;
+            default: return false;
+            }
+        }
+        constexpr auto is_inline_context() const noexcept -> bool { return is_inline_context(display); }
+
+        static constexpr auto has_start_whitespace(QuadProperty const& p) noexcept -> bool {
+            auto pad = p.left;
+            if (pad.is_absolute()) return pad.i > 0;
+            if (pad.is_precentage()) return pad.f > 0;
+            return false;
+        }
+        constexpr auto has_start_whitespace() const noexcept -> bool { return has_start_whitespace(padding); }
+
+        static constexpr auto has_end_whitespace(QuadProperty const& p) noexcept -> bool {
+            auto pad = p.right;
+            if (pad.is_absolute()) return pad.i > 0;
+            if (pad.is_precentage()) return pad.f > 0;
+            return false;
+        }
+        constexpr auto has_end_whitespace() const noexcept -> bool { return has_end_whitespace(padding); }
+
+        static constexpr auto ignore_vertical_layout_shift(Display d) noexcept -> bool {
+            return d == Display::Inline;
+        }
+        constexpr auto ignore_vertical_layout_shift() noexcept -> bool { return ignore_vertical_layout_shift(display); };
+
+        static constexpr auto ignore_size(Display d) noexcept -> bool {
+            return d == Display::Inline;
+        }
+        constexpr auto ignore_size() const noexcept -> bool { return ignore_size(display); };
+
+        constexpr auto can_collapse_margin() const noexcept -> bool {
+            if (item_type == ItemType::None) return true;
+            return false;
         }
     private:
         static constexpr auto get_property(
@@ -950,12 +1029,12 @@ namespace termml::style {
             }
         }
     };
-} // namespace termml::style
+} // namespace termml::css
 
 #include <format>
 
 template <>
-struct std::formatter<termml::style::RGBColor> {
+struct std::formatter<termml::css::RGBColor> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -965,7 +1044,7 @@ struct std::formatter<termml::style::RGBColor> {
         return it;
     }
 
-    auto format(termml::style::RGBColor const& c, auto& ctx) const {
+    auto format(termml::css::RGBColor const& c, auto& ctx) const {
         auto out = ctx.out();
         std::format_to(out, "rgb({}, {}, {})", c.r, c.g, c.b);
         return out;
@@ -973,7 +1052,7 @@ struct std::formatter<termml::style::RGBColor> {
 };
 
 template <>
-struct std::formatter<termml::style::Color> {
+struct std::formatter<termml::css::Color> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -983,7 +1062,7 @@ struct std::formatter<termml::style::Color> {
         return it;
     }
 
-    auto format(termml::style::Color const& c, auto& ctx) const {
+    auto format(termml::css::Color const& c, auto& ctx) const {
         auto out = ctx.out();
         if (c.is_rgb()) {
             std::format_to(out, "{}", c.as_rgb());
@@ -997,7 +1076,7 @@ struct std::formatter<termml::style::Color> {
 };
 
 template <>
-struct std::formatter<termml::style::Number> {
+struct std::formatter<termml::css::Number> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1007,11 +1086,11 @@ struct std::formatter<termml::style::Number> {
         return it;
     }
 
-    auto format(termml::style::Number const& n, auto& ctx) const {
+    auto format(termml::css::Number const& n, auto& ctx) const {
         auto out = ctx.out();
-        if (n.unit == termml::style::Unit::Percentage) {
+        if (n.unit == termml::css::Unit::Percentage) {
             std::format_to(out, "{}%", n.f);
-        } else if (n.unit == termml::style::Unit::Auto) {
+        } else if (n.unit == termml::css::Unit::Auto) {
             std::format_to(out, "fit");
         } else {
             std::format_to(out, "{}c", n.i);
@@ -1021,7 +1100,7 @@ struct std::formatter<termml::style::Number> {
 };
 
 template <>
-struct std::formatter<termml::style::BorderStyle> {
+struct std::formatter<termml::css::BorderStyle> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1031,19 +1110,19 @@ struct std::formatter<termml::style::BorderStyle> {
         return it;
     }
 
-    auto format(termml::style::BorderStyle const& v, auto& ctx) const {
+    auto format(termml::css::BorderStyle const& v, auto& ctx) const {
         auto out = ctx.out();
         switch (v) {
-            case termml::style::BorderStyle::None: return std::format_to(out, "none");
-            case termml::style::BorderStyle::Solid: return std::format_to(out, "solid");
-            case termml::style::BorderStyle::Dotted: return std::format_to(out, "dotted");
+            case termml::css::BorderStyle::None: return std::format_to(out, "none");
+            case termml::css::BorderStyle::Solid: return std::format_to(out, "solid");
+            case termml::css::BorderStyle::Dotted: return std::format_to(out, "dotted");
         }
         return out;
     }
 };
 
 template <>
-struct std::formatter<termml::style::Border> {
+struct std::formatter<termml::css::Border> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1053,7 +1132,7 @@ struct std::formatter<termml::style::Border> {
         return it;
     }
 
-    auto format(termml::style::Border const& v, auto& ctx) const {
+    auto format(termml::css::Border const& v, auto& ctx) const {
         auto out = ctx.out();
         std::format_to(out, "{} {} {}", v.width, v.style, v.color);
         return out;
@@ -1061,7 +1140,7 @@ struct std::formatter<termml::style::Border> {
 };
 
 template <>
-struct std::formatter<termml::style::BorderType> {
+struct std::formatter<termml::css::BorderType> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1071,18 +1150,18 @@ struct std::formatter<termml::style::BorderType> {
         return it;
     }
 
-    auto format(termml::style::BorderType const& v, auto& ctx) const {
+    auto format(termml::css::BorderType const& v, auto& ctx) const {
         auto out = ctx.out();
         switch (v) {
-            case termml::style::BorderType::Sharp: return std::format_to(out, "Sharp");
-            case termml::style::BorderType::Rounded: return std::format_to(out, "Rounded");
+            case termml::css::BorderType::Sharp: return std::format_to(out, "Sharp");
+            case termml::css::BorderType::Rounded: return std::format_to(out, "Rounded");
         }
         return out;
     }
 };
 
 template <>
-struct std::formatter<termml::style::Overflow> {
+struct std::formatter<termml::css::Overflow> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1092,19 +1171,19 @@ struct std::formatter<termml::style::Overflow> {
         return it;
     }
 
-    auto format(termml::style::Overflow const& v, auto& ctx) const {
+    auto format(termml::css::Overflow const& v, auto& ctx) const {
         auto out = ctx.out();
         switch (v) {
-            case termml::style::Overflow::Clip: return std::format_to(out, "Clip");
-            case termml::style::Overflow::Auto: return std::format_to(out, "Auto");
-            case termml::style::Overflow::Visible: return std::format_to(out, "Visible");
-            case termml::style::Overflow::Scroll: return std::format_to(out, "Scroll");
+            case termml::css::Overflow::Clip: return std::format_to(out, "Clip");
+            case termml::css::Overflow::Auto: return std::format_to(out, "Auto");
+            case termml::css::Overflow::Visible: return std::format_to(out, "Visible");
+            case termml::css::Overflow::Scroll: return std::format_to(out, "Scroll");
         }
         return out;
     }
 };
 template <>
-struct std::formatter<termml::style::QuadProperty> {
+struct std::formatter<termml::css::QuadProperty> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1114,7 +1193,7 @@ struct std::formatter<termml::style::QuadProperty> {
         return it;
     }
 
-    auto format(termml::style::QuadProperty const& v, auto& ctx) const {
+    auto format(termml::css::QuadProperty const& v, auto& ctx) const {
         auto out = ctx.out();
         std::format_to(out, "QuadProperty(top: {}, right: {}, bottom: {}, left: {})", v.top, v.right, v.bottom, v.left);
         return out;
@@ -1122,7 +1201,7 @@ struct std::formatter<termml::style::QuadProperty> {
 };
 
 template <>
-struct std::formatter<termml::style::Display> {
+struct std::formatter<termml::css::Display> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1132,20 +1211,21 @@ struct std::formatter<termml::style::Display> {
         return it;
     }
 
-    auto format(termml::style::Display const& v, auto& ctx) const {
+    auto format(termml::css::Display const& v, auto& ctx) const {
         auto out = ctx.out();
         switch (v) {
-            case termml::style::Display::Block: return std::format_to(out, "Block");
-            case termml::style::Display::InlineBlock: return std::format_to(out, "InlineBlock");
-            case termml::style::Display::Inline: return std::format_to(out, "Inline");
-            case termml::style::Display::Flex: return std::format_to(out, "Flex");
+            case termml::css::Display::Block: return std::format_to(out, "Block");
+            case termml::css::Display::InlineBlock: return std::format_to(out, "InlineBlock");
+            case termml::css::Display::Inline: return std::format_to(out, "Inline");
+            case termml::css::Display::Flex: return std::format_to(out, "Flex");
+            case termml::css::Display::Grid: return std::format_to(out, "Grid");
         }
         return out;
     }
 };
 
 template <>
-struct std::formatter<termml::style::Whitespace> {
+struct std::formatter<termml::css::Whitespace> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1155,20 +1235,21 @@ struct std::formatter<termml::style::Whitespace> {
         return it;
     }
 
-    auto format(termml::style::Whitespace const& v, auto& ctx) const {
+    auto format(termml::css::Whitespace const& v, auto& ctx) const {
         auto out = ctx.out();
         switch (v) {
-            case termml::style::Whitespace::Normal: return std::format_to(out, "Normal");
-            case termml::style::Whitespace::Pre: return std::format_to(out, "Pre");
-            case termml::style::Whitespace::PreWrap: return std::format_to(out, "PreWrap");
-            case termml::style::Whitespace::PreLine: return std::format_to(out, "PreLine");
+            case termml::css::Whitespace::Normal: return std::format_to(out, "Normal");
+            case termml::css::Whitespace::NoWrap: return std::format_to(out, "NoWrap");
+            case termml::css::Whitespace::Pre: return std::format_to(out, "Pre");
+            case termml::css::Whitespace::PreWrap: return std::format_to(out, "PreWrap");
+            case termml::css::Whitespace::PreLine: return std::format_to(out, "PreLine");
         }
         return out;
     }
 };
 
 template <>
-struct std::formatter<termml::style::Style> {
+struct std::formatter<termml::css::Style> {
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
@@ -1178,7 +1259,7 @@ struct std::formatter<termml::style::Style> {
         return it;
     }
 
-    auto format(termml::style::Style const& v, auto& ctx) const {
+    auto format(termml::css::Style const& v, auto& ctx) const {
         auto out = ctx.out();
 
         std::format_to(out, "Style{{");
@@ -1205,4 +1286,4 @@ struct std::formatter<termml::style::Style> {
         return out;
     }
 };
-#endif // AMT_TERMML_STYLE_HPP
+#endif // AMT_TERMML_CSS_STYLE_HPP
