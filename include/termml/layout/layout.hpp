@@ -483,10 +483,6 @@ namespace termml::layout {
 
                 tmp.content.width = std::min(tmp.content.width, ch.container.width);
 
-                // if (style.whitespace != css::Whitespace::NoWrap) {
-                //     ch.container.width = tmp.content.width + offset_x;
-                // }
-
                 if (is_previous_inline && style.is_inline_context()) {
                     tmp.previous_line = std::max(lines.size(), std::size_t{1}) - 1;
                 }
