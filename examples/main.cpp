@@ -2,12 +2,6 @@
 #include <chrono>
 #include <thread>
 #include "termml.hpp"
-#include "termml/core/commands.hpp"
-#include "termml/core/event.hpp"
-#include "termml/core/raw_mode.hpp"
-#include "termml/xml/lexer.hpp"
-#include "termml/xml/parser.hpp"
-#include "termml/layout.hpp"
 
 using namespace termml;
 
@@ -20,9 +14,9 @@ void sleep_frame(std::chrono::steady_clock::time_point start, int ms = 16) {
 
 int main() {
     std::string_view source = R"(
-    <row color="red">
+    <row color="red" border="thin solid red">
         <b min-width="30%">
-            ⚠️ Warning:
+            ⚠️ Warnin Lorem Ipsum is simply dummy\n text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.g:
         </b>
         <text>Disk space is almost full.</text>
     </row>
@@ -36,10 +30,32 @@ int main() {
     l.lex();
     auto parser = xml::Parser(std::move(l));
     parser.parse();
-    auto layout = layout::LayoutContext({ .x = 0, .y = 0, .width = 100, .height = 100 });
+    auto layout = layout::LayoutContext({ .x = 0, .y = 0, .width = 50, .height = 50 });
     layout.compute(parser.context.get());
-    parser.context->dump_xml();
+    // parser.context->dump_xml();
     // layout.dump(parser.context.get());
+
+    auto terminal = core::Terminal(50, 50);
+    auto device = core::Device(&terminal);
+    auto& cmd = core::Command::out();
+
+    layout.render(device, parser.context.get());
+    device.flush(cmd, 0, 0);
+
+    
+    // text::TextRenderer t {
+    //     .text = "Lorem Ipsum is simply dummy\n text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.",
+    //     .container = { .width = 20, .height = 100 },
+    // };
+    //
+    // auto style = parser.context->styles[0];
+    // t.container.height = t.measure_height(style);
+    //
+    // // style.whitespace = style::Whitespace::PreLine;
+    // t.render(device, style);
+    // //
+    // cmd.clear_screen();
+    // device.flush(cmd, 0, 0);
 
     return 0;
 }
