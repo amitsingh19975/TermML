@@ -456,7 +456,7 @@ namespace termml::layout {
                 auto is_inline = style.has_inline_flow();
 
                 if (!is_inline) {
-                    tmp.content.x = tmp.start_position.x;
+                    tmp.content.x = tmp_param.start_position.x;
                     tmp.content.y = tmp_param.start_position.y + tmp_param.height;
                     auto x_shift = tmp.content.x - ch.container.x;
                     ch.container.x = tmp.content.x;
@@ -513,9 +513,11 @@ namespace termml::layout {
                         nodes[el.children[j]].container.y += v_margin.first;
                     }
 
+                    height += v_margin.first;
+                    ch.container.y += v_margin.first;
+
                     v_margin = { v_margin.second, 0 };
                     v_padding = {};
-                    height += v_margin.first;
                     margin_line_start = lines.size();
                     margin_node_start = i + 1;
                 }
