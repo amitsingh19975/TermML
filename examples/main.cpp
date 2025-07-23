@@ -14,14 +14,14 @@ void sleep_frame(std::chrono::steady_clock::time_point start, int ms = 16) {
 
 int main() {
     std::string_view source = R"(
-    <row color="red" border="thin solid red">
+    <row color="red" border="thin solid red" border-type="rounded">
         <b min-width="30%">
             ⚠️ Warnin Lorem Ipsum is simply dummy\n text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.g:
         </b>
         <text>Disk space is almost full.</text>
     </row>
     test
-    <col>
+    <col border="thick dotted green" border-type="rounded" margin-top="4c" padding="2c">
         <text>Usage:</text>
         <b color="#ff5555">95%</b>
     </col>
