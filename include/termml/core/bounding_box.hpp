@@ -53,6 +53,14 @@ namespace termml::core {
                 .height = std::min(max_y - min_y, 0)
             };
         }
+
+        constexpr auto pad(int top, int right, int bottom, int left) const noexcept -> BoundingBox {
+            auto x_ = x + left;
+            auto y_ = y + top;
+            auto w = std::max(width - right - left, 0);
+            auto h = std::max(height - top - bottom, 0);
+            return { x_, y_, w, h };
+        }
     };
 
 } // namespace termml::core
