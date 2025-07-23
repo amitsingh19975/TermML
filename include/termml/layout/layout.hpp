@@ -476,12 +476,13 @@ namespace termml::layout {
 
                     tmp.height = tmp_param.height = 0;
                     tmp.start_position = { tmp.content.x, tmp.content.y };
+                    tmp.content.width = std::min(tmp.content.width, ch.container.width);
                 } else {
+                    ch.container.width -= (tmp.content.x - ch.container.x);
                     ch.container.x = tmp.content.x;
                     ch.container.y = tmp.content.y;
                 }
 
-                tmp.content.width = std::min(tmp.content.width, ch.container.width);
 
                 if (is_previous_inline && style.is_inline_context()) {
                     tmp.previous_line = std::max(lines.size(), std::size_t{1}) - 1;
@@ -502,9 +503,9 @@ namespace termml::layout {
                 auto height = tmp_param.height;
                 tmp_param = tmp;
 
-                if (moved_to_new_line || !is_inline) {
-                    height += ch.container.height;
+                height += ch.container.height;
 
+                if (moved_to_new_line || !is_inline) {
                     for (auto j = margin_line_start; j < lines.size(); ++j) {
                         lines[j].bounds.y += v_margin.first;
                     }
@@ -518,11 +519,8 @@ namespace termml::layout {
                     margin_line_start = lines.size();
                     margin_node_start = i + 1;
                 }
-                if (is_previous_inline && is_inline) {
-                    height = std::max(height - 1, 0);
-                }
 
-                if (!moved_to_new_line && !is_inline) {
+                if (is_previous_inline && is_inline) {
                     height = std::max(height - 1, 0);
                 }
 
@@ -552,8 +550,7 @@ namespace termml::layout {
 
             param.height += tmp_param.height;
             if (p_style.has_inline_flow()) {
-                param.start_position.x = tmp_param.start_position.x;
-                param.start_position.y = tmp_param.start_position.y;
+                param.start_position = tmp_param.start_position;
             } else {
                 param.start_position.x = param.content.x;
                 param.start_position.y += param.height;
