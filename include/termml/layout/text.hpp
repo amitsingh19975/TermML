@@ -118,6 +118,7 @@ namespace termml::layout {
                 box.width = w;
                 box.x = x;
                 box.y = y;
+                start_position = { box.max_x(), y };
                 return { .container = box, .text_rendered = text.size(), .span = span };
             }
 
