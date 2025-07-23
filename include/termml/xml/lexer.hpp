@@ -173,13 +173,14 @@ namespace termml::xml {
         }
 
         auto lex() -> bool {
+            bool inside_tag = false;
             while (!is_eof()) {
                 skip_whitespace();
                 if (is_eof()) break;
 
                 auto c = source[m_cursor];
 
-                if (parse_identifier()) {
+                if (inside_tag && parse_identifier()) {
                     continue;
                 }
 
@@ -192,6 +193,7 @@ namespace termml::xml {
                                 .end = m_cursor + 2
                             });
                             ++m_cursor;
+                            inside_tag = true;
                             break;
                         } else if (peek() == '!') {
                             // consume all the tokens upcoming tokens and do not generate error.
@@ -212,6 +214,7 @@ namespace termml::xml {
                             m_cursor += 2;
                             break;
                         }
+                        inside_tag = true;
                         tokens.push_back({
                             .kind = TokenKind::StartOpenTag,
                             .start = m_cursor,
@@ -233,6 +236,7 @@ namespace termml::xml {
 
                     } break;
                     case '>': {
+                        inside_tag = false;
                         tokens.push_back({
                             .kind = TokenKind::CloseTag,
                             .start = m_cursor,
@@ -260,6 +264,12 @@ namespace termml::xml {
                             .start = m_cursor,
                             .end = m_cursor + 1
                         });
+                    }
+                    default: {
+                        if (!inside_tag) {
+                            parse_content();
+                            continue;
+                        }
                     }
                 }
 
